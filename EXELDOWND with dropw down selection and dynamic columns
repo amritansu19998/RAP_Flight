@@ -1,0 +1,3870 @@
+*&---------------------------------------------------------------------*
+*& Report ZPS_T_FR_MAINTAIN
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zps_t_fr_maintain.
+
+*----------------------------------------------------------------------*
+* Constants
+*----------------------------------------------------------------------*
+CONSTANTS:
+  gc_sheet_main TYPE string VALUE '8.0_FLEET & RESOURCE SCHEDULE',
+  gc_sheet_list TYPE string VALUE 'LISTS',
+  gc_sheet_ctrl TYPE string VALUE 'CONTROL',
+  gc_marker     TYPE string VALUE 'ZPS_T_FR',
+  gc_table      TYPE string VALUE 'Fleet',
+  gc_lock_tab   TYPE tabname VALUE 'ZPS_T_FR_HDR',
+  gc_divisor    TYPE p LENGTH 4 DECIMALS 2 VALUE '30.33',
+  gc_open_date  TYPE d VALUE '99991231',
+  gc_klart      TYPE klassenart VALUE '002',   " equipment class type
+* Office Open XML namespaces
+  gc_ns_main    TYPE string VALUE 'http://schemas.openxmlformats.org/spreadsheetml/2006/main',
+  gc_ns_rel     TYPE string VALUE 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  gc_ns_pkg     TYPE string VALUE 'http://schemas.openxmlformats.org/package/2006/relationships',
+  gc_ns_ct      TYPE string VALUE 'http://schemas.openxmlformats.org/package/2006/content-types',
+  gc_ct_sheet   TYPE string VALUE 'application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml'.
+
+* Own / Lease / Hired
+CONSTANTS: gc_own   TYPE c LENGTH 1 VALUE 'O',
+           gc_lease TYPE c LENGTH 1 VALUE 'L',
+           gc_hired TYPE c LENGTH 1 VALUE 'H'.
+
+* cost rows in ZPS_T_FR_CST
+CONSTANTS: gc_cst_plan TYPE c LENGTH 1 VALUE 'P',   " planned cost per month
+           gc_cst_act  TYPE c LENGTH 1 VALUE 'A',   " actual cost of reporting month
+           gc_cst_itd  TYPE c LENGTH 1 VALUE 'I'.   " inception-to-date actual
+
+* file modes (CONTROL!H1)
+CONSTANTS: gc_mode_create   TYPE c LENGTH 1 VALUE 'C',
+           gc_mode_maintain TYPE c LENGTH 1 VALUE 'M',
+           gc_mode_display  TYPE c LENGTH 1 VALUE 'D'.
+
+* sheet rows / header block columns
+CONSTANTS: gc_r_month  TYPE i VALUE 4,     " AJ4 label, AK4 Month-Year
+           gc_r_job    TYPE i VALUE 7,
+           gc_r_desc   TYPE i VALUE 8,
+           gc_r_cli    TYPE i VALUE 9,
+           gc_r_sanc   TYPE i VALUE 10,
+           gc_r_grp    TYPE i VALUE 11,    " column group captions
+           gc_r_head   TYPE i VALUE 12,    " table header
+           gc_r_data   TYPE i VALUE 13,    " first resource line
+           gc_c_jobval TYPE i VALUE 3,     " C:E  Job No / Description / Client
+           gc_c_jobend TYPE i VALUE 5,
+           gc_c_legbox TYPE i VALUE 6,     " F    legend colour box
+           gc_c_legtxt TYPE i VALUE 7,     " G:I  legend text
+           gc_c_legend TYPE i VALUE 9,
+           gc_c_hlab   TYPE i VALUE 29,    " AC:AF header labels
+           gc_c_hlabe  TYPE i VALUE 32,
+           gc_c_hval   TYPE i VALUE 33,    " AG:AH header values
+           gc_c_hvale  TYPE i VALUE 34,
+           gc_new_rows TYPE i VALUE 50.    " blank rows for a new project
+* Sheet / workbook protection. Password for key users: ZFleet#2026
+* GC_PWD_HASH = legacy Excel hash of that password (change both together)
+CONSTANTS: gc_pwd_hash TYPE string VALUE 'E0FE'.
+
+* sheet columns
+CONSTANTS: gc_c_sno   TYPE i VALUE 1,      " A  S.No                 formula
+           gc_c_eqart TYPE i VALUE 2,      " B  Equipment Group      entry (dropdown, object type)
+           gc_c_class TYPE i VALUE 3,      " C  Equipment Class      entry (dropdown)
+           gc_c_equnr TYPE i VALUE 4,      " D  Equipment code       entry (dropdown)
+           gc_c_own   TYPE i VALUE 5,      " E  Own/Hired            SAP (lookup, EQTYP)
+           gc_c_anln  TYPE i VALUE 6,      " F  Asset code           SAP (lookup)
+           gc_c_anlun TYPE i VALUE 7,      " G  Sub-Asset            SAP (lookup)
+           gc_c_avl   TYPE i VALUE 8,      " H  Avl/Req/Sur          entry
+           gc_c_desc  TYPE i VALUE 9,      " I  Asset description    SAP (lookup)
+           gc_c_qty   TYPE i VALUE 10,     " J  Qty                  entry (white, default 1)
+           gc_c_ownc  TYPE i VALUE 11,     " K  Owner code           entry
+           gc_c_pihc  TYPE i VALUE 12,     " L  Planned IHC/Hire     entry
+           gc_c_popr  TYPE i VALUE 13,     " M  Planned Operator     entry
+           gc_c_pful  TYPE i VALUE 14,     " N  Planned Fuel         entry
+           gc_c_ptot  TYPE i VALUE 15,     " O  Planned Total        formula
+           gc_c_aihc  TYPE i VALUE 16,     " P  Actual IHC/Hire      SAP
+           gc_c_aopr  TYPE i VALUE 17,     " Q  Actual Operator      SAP
+           gc_c_aful  TYPE i VALUE 18,     " R  Actual Fuel          SAP
+           gc_c_atot  TYPE i VALUE 19,     " S  Actual Total         formula
+           gc_c_pfrm  TYPE i VALUE 20,     " T  Plan From            entry
+           gc_c_pto   TYPE i VALUE 21,     " U  Plan To              entry
+           gc_c_pmm   TYPE i VALUE 22,     " V  Plan Machine Month   formula
+           gc_c_rfrm  TYPE i VALUE 23,     " W  Rev. Plan From       entry
+           gc_c_rto   TYPE i VALUE 24,     " X  Rev. Plan To         entry
+           gc_c_rmm   TYPE i VALUE 25,     " Y  Rev. Machine Months  formula
+           gc_c_upl   TYPE i VALUE 26,     " Z  Utilization Planned  formula
+           gc_c_uac   TYPE i VALUE 27,     " AA Utilization Actual   SAP
+           gc_c_dep   TYPE i VALUE 28,     " AB Actual Deployed Date SAP
+           gc_c_rel   TYPE i VALUE 29,     " AC Rel Date             SAP
+           gc_c_ihir  TYPE i VALUE 30,     " AD ITD Hire             SAP
+           gc_c_iopr  TYPE i VALUE 31,     " AE ITD Operator         SAP
+           gc_c_iful  TYPE i VALUE 32,     " AF ITD Fuel             SAP
+           gc_c_itot  TYPE i VALUE 33,     " AG ITD Total            formula
+           gc_c_cpl   TYPE i VALUE 34,     " AH Cost Plan            formula
+           gc_c_cac   TYPE i VALUE 35,     " AI Cost Actual          formula
+           gc_c_cbal  TYPE i VALUE 36,     " AJ Cost Balance         formula
+           gc_c_rem   TYPE i VALUE 37,     " AK Remarks              entry
+           gc_c_lin   TYPE i VALUE 38,     " AL Line ID (hidden)     system
+           gc_c_last  TYPE i VALUE 38.
+
+* column classes
+CONSTANTS: gc_cls_entry TYPE c LENGTH 1 VALUE 'E',   " green, editable
+           gc_cls_slist TYPE c LENGTH 1 VALUE 'L',   " blue, editable SAP dropdown
+           gc_cls_sap   TYPE c LENGTH 1 VALUE 'S',   " blue, locked SAP value
+           gc_cls_slook TYPE c LENGTH 1 VALUE 'K',   " blue, locked SAP lookup formula
+           gc_cls_form  TYPE c LENGTH 1 VALUE 'F',   " grey, locked formula
+           gc_cls_white TYPE c LENGTH 1 VALUE 'W',   " white, editable (Qty)
+           gc_cls_sys   TYPE c LENGTH 1 VALUE 'H'.   " hidden
+
+* column formats
+CONSTANTS: gc_fmt_text TYPE c LENGTH 1 VALUE 'T',
+           gc_fmt_num  TYPE c LENGTH 1 VALUE 'N',
+           gc_fmt_dec  TYPE c LENGTH 1 VALUE 'P',
+           gc_fmt_date TYPE c LENGTH 1 VALUE 'D',
+           gc_fmt_gen  TYPE c LENGTH 1 VALUE 'G'.
+
+* cell kinds
+CONSTANTS: gc_k_str  TYPE c LENGTH 1 VALUE 'S',
+           gc_k_num  TYPE c LENGTH 1 VALUE 'N',
+           gc_k_date TYPE c LENGTH 1 VALUE 'D',
+           gc_k_form TYPE c LENGTH 1 VALUE 'F'.
+
+* cellXfs index in styles.xml (see FORM xml_styles - same order)
+CONSTANTS: gc_s_none    TYPE i VALUE 0,
+           gc_s_company TYPE i VALUE 1,
+           gc_s_label   TYPE i VALUE 2,
+           gc_s_title   TYPE i VALUE 3,
+           gc_s_head    TYPE i VALUE 4,
+           gc_s_e_text  TYPE i VALUE 5,
+           gc_s_e_num   TYPE i VALUE 6,
+           gc_s_e_date  TYPE i VALUE 7,
+           gc_s_e_gen   TYPE i VALUE 8,
+           gc_s_s_text  TYPE i VALUE 9,
+           gc_s_s_num   TYPE i VALUE 10,
+           gc_s_s_date  TYPE i VALUE 11,
+           gc_s_s_dec   TYPE i VALUE 12,
+           gc_s_f_num   TYPE i VALUE 13,
+           gc_s_f_sno   TYPE i VALUE 14,
+           gc_s_total   TYPE i VALUE 15,
+           gc_s_hdate   TYPE i VALUE 16,
+           gc_s_month   TYPE i VALUE 17,
+           gc_s_leg_e   TYPE i VALUE 18,
+           gc_s_leg_s   TYPE i VALUE 19,
+           gc_s_leg_f   TYPE i VALUE 20,
+           gc_s_sys     TYPE i VALUE 21,
+           gc_s_s_list  TYPE i VALUE 22,
+           gc_s_w_entry TYPE i VALUE 23.
+
+*----------------------------------------------------------------------*
+* Types
+*----------------------------------------------------------------------*
+TYPES: BEGIN OF ty_proj,
+         pspnr TYPE proj-pspnr,
+         pspid TYPE proj-pspid,
+         post1 TYPE proj-post1,
+         plfaz TYPE proj-plfaz,
+         plsez TYPE proj-plsez,
+         vbukr TYPE proj-vbukr,
+         vkokr TYPE proj-vkokr,
+         prctr TYPE proj-prctr,
+         pwhie TYPE proj-pwhie,
+         werks TYPE proj-werks,
+       END OF ty_proj.
+
+TYPES: BEGIN OF ty_col,
+         col   TYPE i,
+         name  TYPE string,
+         cls   TYPE c LENGTH 1,
+         fmt   TYPE c LENGTH 1,
+         width TYPE string,
+         calc  TYPE string,
+         tot   TYPE c LENGTH 1,
+       END OF ty_col.
+
+TYPES: BEGIN OF ty_cell,
+         row   TYPE i,
+         col   TYPE i,
+         kind  TYPE c LENGTH 1,
+         value TYPE string,
+       END OF ty_cell,
+       ty_t_cell TYPE SORTED TABLE OF ty_cell WITH UNIQUE KEY row col.
+
+TYPES: BEGIN OF ty_log,
+         row   TYPE i,
+         msgty TYPE symsgty,
+         text  TYPE c LENGTH 220,
+       END OF ty_log.
+
+* one resource line = ZPS_T_FR_ITM + its cost heads (ZPS_T_FR_CST)
+TYPES: BEGIN OF ty_line.
+         INCLUDE TYPE zps_t_fr_itm.
+TYPES:   row     TYPE i,
+         sortkey TYPE i,
+         clstxt  TYPE string,                 " class as shown in the sheet
+         eqtxt   TYPE string,                 " equipment group as shown
+         abukrs  TYPE bukrs,
+         daufn   TYPE aufnr,
+         ebeln   TYPE ebeln,
+         pl_ihc  TYPE zps_t_fr_cst-ihc,
+         pl_opr  TYPE zps_t_fr_cst-opr,
+         pl_fuel TYPE zps_t_fr_cst-fuel,
+         ac_ihc  TYPE zps_t_fr_cst-ihc,
+         ac_opr  TYPE zps_t_fr_cst-opr,
+         ac_fuel TYPE zps_t_fr_cst-fuel,
+         it_ihc  TYPE zps_t_fr_cst-ihc,
+         it_opr  TYPE zps_t_fr_cst-opr,
+         it_fuel TYPE zps_t_fr_cst-fuel,
+       END OF ty_line,
+       ty_t_line TYPE STANDARD TABLE OF ty_line WITH DEFAULT KEY.
+
+TYPES: BEGIN OF ty_equi,
+         equnr TYPE equnr,
+         found TYPE abap_bool,
+         eqart TYPE eqart,
+         eqtyp TYPE eqtyp,
+         ownhr TYPE zps_t_fr_itm-ownhr,
+         swerk TYPE swerk,
+         anlnr TYPE anln1,
+         anlun TYPE anln2,
+         bukrs TYPE bukrs,
+         daufn TYPE aufnr,
+         datab TYPE d,
+         datbi TYPE d,
+         eqktx TYPE ktx01,
+         ebeln TYPE ebeln,
+       END OF ty_equi.
+
+* equipment classes (class type 002)
+TYPES: BEGIN OF ty_class,
+         clint TYPE clint,
+         class TYPE klasse_d,
+         text  TYPE string,                  " shown in the dropdown
+         upper TYPE string,
+       END OF ty_class.
+
+* class -> equipment rows (dependent dropdown source)
+TYPES: BEGIN OF ty_clseq,
+         clstxt TYPE string,
+         equnr  TYPE string,
+       END OF ty_clseq.
+
+* equipment -> asset / sub-asset / description (lookup source)
+TYPES: BEGIN OF ty_equniq,
+         equnr TYPE string,
+         anln  TYPE string,
+         anlun TYPE string,
+         eqktx TYPE string,
+         own   TYPE string,
+       END OF ty_equniq.
+
+* equipment group = object type (T370K_T)
+TYPES: BEGIN OF ty_eqart,
+         eqart TYPE eqart,
+         eartx TYPE string,
+         upper TYPE string,
+       END OF ty_eqart.
+
+* equipment category -> Own / Lease / Hired (ZPS_T_FR_EQTYP)
+TYPES: BEGIN OF ty_eqtyp,
+         eqtyp TYPE eqtyp,
+         ownhr TYPE zps_t_fr_itm-ownhr,
+       END OF ty_eqtyp.
+
+* equipment class membership (upload check)
+TYPES: BEGIN OF ty_eqcls,
+         equnr TYPE equnr,
+         class TYPE klasse_d,
+       END OF ty_eqcls.
+
+TYPES: ty_r_kstar TYPE RANGE OF kstar.
+
+*----------------------------------------------------------------------*
+* Global data
+*----------------------------------------------------------------------*
+DATA: gs_proj      TYPE ty_proj,
+      gv_ext_pspid TYPE string,
+      gv_webgui    TYPE abap_bool,
+      gv_waers     TYPE waers,
+      gv_company   TYPE string,
+      gv_bu        TYPE string,
+      gv_client    TYPE string,
+      gt_col       TYPE STANDARD TABLE OF ty_col WITH DEFAULT KEY,
+      gt_line      TYPE ty_t_line,
+      gt_base      TYPE ty_t_line,
+      gt_out       TYPE ty_t_cell,
+      gt_in        TYPE ty_t_cell,
+      gt_ctl       TYPE ty_t_cell,
+      gt_log       TYPE STANDARD TABLE OF ty_log WITH DEFAULT KEY,
+      gt_merge     TYPE string_table,
+      gt_class     TYPE STANDARD TABLE OF ty_class WITH DEFAULT KEY,
+      gt_clseq     TYPE STANDARD TABLE OF ty_clseq WITH DEFAULT KEY,
+      gt_equniq    TYPE STANDARD TABLE OF ty_equniq WITH DEFAULT KEY,
+      gt_eqcls     TYPE SORTED TABLE OF ty_eqcls WITH UNIQUE KEY equnr class,
+      gt_equi      TYPE HASHED TABLE OF ty_equi WITH UNIQUE KEY equnr,
+      gt_eqart     TYPE STANDARD TABLE OF ty_eqart WITH DEFAULT KEY,
+      gt_eqtyp     TYPE HASHED TABLE OF ty_eqtyp WITH UNIQUE KEY eqtyp,
+      gr_fuel      TYPE ty_r_kstar,
+      gs_hdr       TYPE zps_t_fr_hdr,         " header of loaded / base version
+      gv_versn     TYPE zps_t_fr_hdr-versn,   " version loaded / base version
+      gv_latest    TYPE zps_t_fr_hdr-versn,
+      gv_mode      TYPE c LENGTH 1,
+      gv_spmon     TYPE spmon,              " reporting month (Month-Year)
+      gv_perfr     TYPE spmon,              " line filter period from
+      gv_perto     TYPE spmon,              " line filter period to
+      gv_ownhr     TYPE zps_t_fr_itm-ownhr,   " line filter own / lease / hired
+      gv_mon_from  TYPE d,                  " 26th of previous month
+      gv_mon_to    TYPE d,                  " 25th of reporting month
+      gv_cal_from  TYPE d,                  " 1st of reporting month  (fuel)
+      gv_cal_to    TYPE d,                  " last of reporting month (fuel)
+      gv_itd_from  TYPE d,                  " project start
+      gv_expcd     TYPE d,                  " expected completion date
+      gv_sncost    TYPE zps_t_fr_hdr-sncost,  " sanctioned / contracted cost
+      gv_lastrow   TYPE i,                  " last data row of the table
+      gv_totrow    TYPE i,                  " table totals row
+      gv_sigrow    TYPE i.                  " signature row
+
+*----------------------------------------------------------------------*
+* Selection screen
+*----------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-b01.
+  PARAMETERS: p_pspid TYPE proj-pspid OBLIGATORY.
+SELECTION-SCREEN END OF BLOCK b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-b02.
+  PARAMETERS: rb_down RADIOBUTTON GROUP g1 DEFAULT 'X' USER-COMMAND rad,
+              rb_up   RADIOBUTTON GROUP g1.
+  PARAMETERS: p_file  TYPE rlgrap-filename LOWER CASE MODIF ID fil.
+SELECTION-SCREEN END OF BLOCK b2.
+
+SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE TEXT-b03.
+  PARAMETERS: p_perfr TYPE spmon MODIF ID dwn,
+              p_perto TYPE spmon MODIF ID dwn,
+              p_ownhr TYPE zps_t_fr_itm-ownhr AS LISTBOX VISIBLE LENGTH 12 MODIF ID dwn,
+              p_versn TYPE zps_t_fr_hdr-versn MODIF ID dwn,
+              p_spare TYPE i DEFAULT 25 MODIF ID dwn.
+SELECTION-SCREEN END OF BLOCK b3.
+
+*----------------------------------------------------------------------*
+INITIALIZATION.
+  PERFORM check_webgui.
+  PERFORM set_listbox.
+  p_perto = sy-datum(6).
+
+AT SELECTION-SCREEN OUTPUT.
+  PERFORM set_listbox.
+  LOOP AT SCREEN.
+    IF screen-group1 = 'DWN' AND rb_up = abap_true.
+      screen-active = 0.
+      MODIFY SCREEN.
+    ENDIF.
+*   browser picks the file in WebGUI / Fiori - no path field needed
+    IF screen-group1 = 'FIL' AND gv_webgui = abap_true.
+      screen-active = 0.
+      MODIFY SCREEN.
+    ENDIF.
+  ENDLOOP.
+
+AT SELECTION-SCREEN ON VALUE-REQUEST FOR p_file.
+  PERFORM f4_file.
+
+AT SELECTION-SCREEN ON p_pspid.
+  PERFORM read_project.
+
+AT SELECTION-SCREEN.
+  IF rb_down = abap_true AND p_perfr IS NOT INITIAL AND p_perto IS NOT INITIAL
+     AND p_perfr > p_perto.
+    MESSAGE 'Period From is after Period To' TYPE 'E'.
+  ENDIF.
+
+*----------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM read_project.
+  PERFORM init_cols.
+  IF rb_down = abap_true.
+    PERFORM download.
+  ELSE.
+    PERFORM upload.
+  ENDIF.
+
+*======================================================================*
+*  COMMON
+*======================================================================*
+FORM check_webgui.
+  DATA lv_its TYPE c LENGTH 1.
+  CALL FUNCTION 'GUI_IS_ITS'
+    IMPORTING
+      return = lv_its.
+  IF lv_its IS NOT INITIAL.
+    gv_webgui = abap_true.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM set_listbox.
+  DATA: lt_val TYPE vrm_values,
+        ls_val TYPE vrm_value.
+  ls_val-key = gc_own.   ls_val-text = 'Own'.   APPEND ls_val TO lt_val.
+  ls_val-key = gc_lease. ls_val-text = 'Lease'. APPEND ls_val TO lt_val.
+  ls_val-key = gc_hired. ls_val-text = 'Hired'. APPEND ls_val TO lt_val.
+  CALL FUNCTION 'VRM_SET_VALUES'
+    EXPORTING
+      id     = 'P_OWNHR'
+      values = lt_val
+    EXCEPTIONS
+      OTHERS = 1.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM read_project.
+  DATA: lv_ext  TYPE c LENGTH 24,
+        lv_txt  TYPE string,
+        lv_butx TYPE t001-butxt,
+        lv_wae  TYPE t001-waers,
+        lv_ltxt TYPE cepct-ltext,
+        lv_ktxt TYPE cepct-ktext.
+
+  SELECT SINGLE pspnr pspid post1 plfaz plsez vbukr vkokr prctr pwhie werks
+    FROM proj INTO gs_proj
+    WHERE pspid = p_pspid.
+  IF sy-subrc <> 0.
+    MESSAGE 'Project does not exist' TYPE 'E'.
+  ENDIF.
+
+  CALL FUNCTION 'CONVERSION_EXIT_ABPSP_OUTPUT'
+    EXPORTING
+      input  = gs_proj-pspid
+    IMPORTING
+      output = lv_ext.
+  gv_ext_pspid = lv_ext.
+  CONDENSE gv_ext_pspid.
+
+  SELECT SINGLE butxt waers FROM t001 INTO (lv_butx, lv_wae)
+    WHERE bukrs = gs_proj-vbukr.
+  gv_company = lv_butx.
+  gv_waers   = gs_proj-pwhie.
+  IF gv_waers IS INITIAL.
+    gv_waers = lv_wae.
+  ENDIF.
+
+* business unit line = profit center text
+  CLEAR gv_bu.
+  IF gs_proj-prctr IS NOT INITIAL.
+    SELECT ltext ktext FROM cepct INTO (lv_ltxt, lv_ktxt) UP TO 1 ROWS
+      WHERE spras = sy-langu
+        AND prctr = gs_proj-prctr
+        AND kokrs = gs_proj-vkokr
+        AND datbi >= sy-datum
+      ORDER BY datbi.
+    ENDSELECT.
+    IF lv_ltxt IS NOT INITIAL.
+      gv_bu = lv_ltxt.
+    ELSE.
+      gv_bu = lv_ktxt.
+    ENDIF.
+  ENDIF.
+
+  PERFORM read_client.
+
+  IF gs_proj-plfaz IS INITIAL OR gs_proj-plsez IS INITIAL.
+    lv_txt = 'Project start / finish dates are not maintained - contractual dates will be blank'.
+    MESSAGE lv_txt TYPE 'S' DISPLAY LIKE 'W'.
+  ENDIF.
+  IF gs_proj-werks IS INITIAL.
+    lv_txt = 'Project has no plant (PROJ-WERKS) - equipment dropdown will be empty'.
+    MESSAGE lv_txt TYPE 'S' DISPLAY LIKE 'W'.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* CONFIRM: Client = sold-to of the sales order assigned to a WBS
+* element of the project (VBAP-PS_PSP_PNR). Replace if the client is
+* kept elsewhere (e.g. a PROJ customer field).
+*----------------------------------------------------------------------*
+FORM read_client.
+  DATA: lv_kunnr TYPE kunnr,
+        lv_name1 TYPE kna1-name1.
+  CLEAR gv_client.
+  SELECT k~kunnr FROM vbak AS k
+    INNER JOIN vbap AS p ON p~vbeln = k~vbeln
+    INNER JOIN prps AS w ON w~pspnr = p~ps_psp_pnr
+    INTO lv_kunnr UP TO 1 ROWS
+    WHERE w~psphi = gs_proj-pspnr.
+  ENDSELECT.
+  IF lv_kunnr IS NOT INITIAL.
+    SELECT SINGLE name1 FROM kna1 INTO lv_name1 WHERE kunnr = lv_kunnr.
+    gv_client = lv_name1.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Authorisation ZPS_T_FR: profit center of the project (+ cost code)
+*----------------------------------------------------------------------*
+FORM auth_check USING    iv_actvt TYPE activ_auth
+                         iv_cc    TYPE any
+                CHANGING cv_ok    TYPE abap_bool.
+  cv_ok = abap_false.
+*  IF iv_cc IS INITIAL.
+*    AUTHORITY-CHECK OBJECT 'ZPS_T_FR'
+*      ID 'PRCTR'     FIELD gs_proj-prctr
+*      ID 'ZPS_CSTCD' DUMMY
+*      ID 'ACTVT'     FIELD iv_actvt.
+*  ELSE.
+*    AUTHORITY-CHECK OBJECT 'ZPS_T_FR'
+*      ID 'PRCTR'     FIELD gs_proj-prctr
+*      ID 'ZPS_CSTCD' FIELD iv_cc
+*      ID 'ACTVT'     FIELD iv_actvt.
+*  ENDIF.
+  IF sy-subrc = 0.
+    cv_ok = abap_true.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Column definitions - order, captions, class, format, width, formula
+* Formula tokens {Column name} become Fleet[[#This Row],[Column name]]
+*----------------------------------------------------------------------*
+FORM init_cols.
+  DATA: lv_f1 TYPE string,
+        lv_f2 TYPE string,
+        lv_f3 TYPE string,
+        lv_f4 TYPE string.
+  CLEAR gt_col.
+* Own/Hired / Asset code / Sub-asset / Asset description: lookup of the
+* equipment in LISTS!H:L (filled from V_EQUI / EQKT / ZPS_T_FR_EQTYP)
+  CONCATENATE 'IF({Equipment code}="","",IFERROR(T(VLOOKUP({Equipment code},LISTS!$H:$L,2,FALSE)),""))' ''
+    INTO lv_f1.
+  CONCATENATE 'IF({Equipment code}="","",IFERROR(T(VLOOKUP({Equipment code},LISTS!$H:$L,3,FALSE)),""))' ''
+    INTO lv_f2.
+  CONCATENATE 'IF({Equipment code}="","",IFERROR(T(VLOOKUP({Equipment code},LISTS!$H:$L,4,FALSE)),""))' ''
+    INTO lv_f3.
+  CONCATENATE 'IF({Equipment code}="","",IFERROR(T(VLOOKUP({Equipment code},LISTS!$H:$L,5,FALSE)),""))' ''
+    INTO lv_f4.
+
+  PERFORM add_col USING gc_c_sno   'S.No'                          gc_cls_form  gc_fmt_gen  '6'
+                        'ROW()-ROW(Fleet[[#Headers],[S.No]])' 'L'.
+  PERFORM add_col USING gc_c_eqart 'Equipment Group'               gc_cls_entry gc_fmt_text '22' '' ''.
+  PERFORM add_col USING gc_c_class 'Equipment Class'               gc_cls_entry gc_fmt_text '28' '' ''.
+  PERFORM add_col USING gc_c_equnr 'Equipment code'                gc_cls_entry gc_fmt_text '14' '' ''.
+  PERFORM add_col USING gc_c_own   'Own/Hired'                     gc_cls_slook gc_fmt_text '11' lv_f4 ''.
+  PERFORM add_col USING gc_c_anln  'Asset Code'                    gc_cls_slook gc_fmt_text '13' lv_f1 ''.
+  PERFORM add_col USING gc_c_anlun 'Sub-Asset'                     gc_cls_slook gc_fmt_text '9'  lv_f2 ''.
+  PERFORM add_col USING gc_c_avl   'Avl/ Req/ Sur'                 gc_cls_entry gc_fmt_text '9'  '' ''.
+  PERFORM add_col USING gc_c_desc  'Asset Description'             gc_cls_slook gc_fmt_text '36' lv_f3 ''.
+  PERFORM add_col USING gc_c_qty   'Qty'                           gc_cls_white gc_fmt_gen  '6'  '' 'S'.
+  PERFORM add_col USING gc_c_ownc  'Owner Code'                    gc_cls_entry gc_fmt_text '11' '' ''.
+  PERFORM add_col USING gc_c_pihc  'Plan IHC/Hire'                 gc_cls_entry gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_popr  'Plan Operator'                 gc_cls_entry gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_pful  'Plan Fuel'                     gc_cls_entry gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_ptot  'Plan Total'                    gc_cls_form  gc_fmt_num  '12'
+                        'SUM({Plan IHC/Hire]:[Plan Fuel})' 'S'.
+  PERFORM add_col USING gc_c_aihc  'Actual IHC/Hire'               gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_aopr  'Actual Operator'               gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_aful  'Actual Fuel'                   gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_atot  'Actual Total'                  gc_cls_form  gc_fmt_num  '12'
+                        'SUM({Actual IHC/Hire]:[Actual Fuel})' 'S'.
+  PERFORM add_col USING gc_c_pfrm  'Plan From'                     gc_cls_entry gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_pto   'Plan To'                       gc_cls_entry gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_pmm   'Plan Machine Month'            gc_cls_form  gc_fmt_num  '10'
+                        'IF(OR({Plan From}="",{Plan To}=""),"",ROUND(({Plan To}-{Plan From})/30.33,0))' ''.
+  PERFORM add_col USING gc_c_rfrm  'Rev. Plan From'                gc_cls_entry gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_rto   'Rev. Plan To'                  gc_cls_entry gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_rmm   'Rev. Plan Machine Months'      gc_cls_form  gc_fmt_num  '10'
+                        'IF(OR({Rev. Plan From}="",{Rev. Plan To}=""),"",ROUND(({Rev. Plan To}-{Rev. Plan From})/30.33,0))'
+                        ''.
+  PERFORM add_col USING gc_c_upl   'Utilization Planned'           gc_cls_form  gc_fmt_num  '11'
+                        'IF(OR({Plan From}="",{Plan To}="",{Plan To}<{Plan From}),"",DATEDIF({Plan From},{Plan To},"m")*N({Qty}))'
+                        ''.
+  PERFORM add_col USING gc_c_uac   'Utilization Actual'            gc_cls_sap   gc_fmt_dec  '11' '' ''.
+  PERFORM add_col USING gc_c_dep   'Actual Deployed Date'          gc_cls_sap   gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_rel   'Rel Date'                      gc_cls_sap   gc_fmt_date '11' '' ''.
+  PERFORM add_col USING gc_c_ihir  'ITD Hire'                      gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_iopr  'ITD Operator'                  gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_iful  'ITD Fuel'                      gc_cls_sap   gc_fmt_num  '12' '' 'S'.
+  PERFORM add_col USING gc_c_itot  'ITD Total'                     gc_cls_form  gc_fmt_num  '12'
+                        'SUM({ITD Hire]:[ITD Fuel})' 'S'.
+  PERFORM add_col USING gc_c_cpl   'Cost Plan'                     gc_cls_form  gc_fmt_num  '14'
+                        '{Plan Total}*N({Plan Machine Month})*N({Qty})' 'S'.
+  PERFORM add_col USING gc_c_cac   'Cost Actual'                   gc_cls_form  gc_fmt_num  '14'
+                        '{ITD Total}' 'S'.
+  PERFORM add_col USING gc_c_cbal  'Cost Balance'                  gc_cls_form  gc_fmt_num  '14'
+                        '{Cost Plan}-{Cost Actual}' 'S'.
+  PERFORM add_col USING gc_c_rem   'Remarks'                       gc_cls_entry gc_fmt_text '30' '' ''.
+  PERFORM add_col USING gc_c_lin   'Line ID'                       gc_cls_sys   gc_fmt_text '8'  '' ''.
+ENDFORM.
+
+FORM add_col USING iv_col   TYPE i
+                   iv_name  TYPE any
+                   iv_cls   TYPE c
+                   iv_fmt   TYPE c
+                   iv_width TYPE any
+                   iv_calc  TYPE any
+                   iv_tot   TYPE any.
+  DATA ls_col TYPE ty_col.
+  ls_col-col   = iv_col.
+  ls_col-name  = iv_name.
+  ls_col-cls   = iv_cls.
+  ls_col-fmt   = iv_fmt.
+  ls_col-width = iv_width.
+  ls_col-calc  = iv_calc.
+  ls_col-tot   = iv_tot.
+  IF ls_col-calc IS NOT INITIAL.
+    REPLACE ALL OCCURRENCES OF '{' IN ls_col-calc WITH 'Fleet[[#This Row],['.
+    REPLACE ALL OCCURRENCES OF '}' IN ls_col-calc WITH ']]'.
+  ENDIF.
+  APPEND ls_col TO gt_col.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* F4 on file (SAP GUI for Windows only - field hidden in WebGUI / Fiori)
+*----------------------------------------------------------------------*
+FORM f4_file.
+  DATA: lt_files  TYPE filetable,
+        ls_file   TYPE file_table,
+        lv_rc     TYPE i,
+        lv_action TYPE i,
+        lv_name   TYPE string,
+        lv_path   TYPE string,
+        lv_full   TYPE string,
+        lv_defnm  TYPE string,
+        lt_dynp   TYPE STANDARD TABLE OF dynpread,
+        ls_dynp   TYPE dynpread.
+
+  ls_dynp-fieldname = 'RB_UP'.
+  APPEND ls_dynp TO lt_dynp.
+  CALL FUNCTION 'DYNP_VALUES_READ'
+    EXPORTING
+      dyname     = sy-repid
+      dynumb     = sy-dynnr
+    TABLES
+      dynpfields = lt_dynp
+    EXCEPTIONS
+      OTHERS     = 1.
+  READ TABLE lt_dynp INTO ls_dynp INDEX 1.
+  IF sy-subrc = 0.
+    rb_up = ls_dynp-fieldvalue.
+  ENDIF.
+
+  IF rb_up = abap_true.
+    cl_gui_frontend_services=>file_open_dialog(
+      EXPORTING
+        window_title = 'Select Fleet & Resource Schedule file'
+        file_filter  = 'Excel (*.xlsx)|*.xlsx'
+      CHANGING
+        file_table   = lt_files
+        rc           = lv_rc
+      EXCEPTIONS
+        OTHERS       = 1 ).
+    READ TABLE lt_files INTO ls_file INDEX 1.
+    IF sy-subrc = 0.
+      p_file = ls_file-filename.
+    ENDIF.
+  ELSE.
+    PERFORM default_name CHANGING lv_defnm.
+    cl_gui_frontend_services=>file_save_dialog(
+      EXPORTING
+        window_title      = 'Save Fleet & Resource Schedule'
+        default_extension = 'xlsx'
+        default_file_name = lv_defnm
+        file_filter       = 'Excel (*.xlsx)|*.xlsx'
+      CHANGING
+        filename          = lv_name
+        path              = lv_path
+        fullpath          = lv_full
+        user_action       = lv_action
+      EXCEPTIONS
+        OTHERS            = 1 ).
+    IF sy-subrc = 0 AND lv_action = cl_gui_frontend_services=>action_ok.
+      p_file = lv_full.
+    ENDIF.
+  ENDIF.
+ENDFORM.
+
+FORM default_name CHANGING cv TYPE string.
+  DATA lv_p TYPE string.
+  lv_p = p_pspid.
+  REPLACE ALL OCCURRENCES OF REGEX '[^A-Za-z0-9_-]' IN lv_p WITH '_'.
+  CONCATENATE 'Fleet_Resource_Schedule_' lv_p '_' sy-datum '.xlsx' INTO cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Reporting windows
+*   IHC / Hire / Operator : 26th of previous month .. 25th of month
+*   Fuel                  : calendar month (KOC4, selected month)
+*   ITD                   : project start .. end of the same window
+*----------------------------------------------------------------------*
+FORM set_windows.
+  DATA lv_d TYPE d.
+  IF gv_spmon IS INITIAL.
+    gv_spmon = sy-datum(6).
+  ENDIF.
+  CONCATENATE gv_spmon '25' INTO gv_mon_to.
+  CONCATENATE gv_spmon '01' INTO lv_d.
+  lv_d = lv_d - 1.                     " last day of previous month
+  CONCATENATE lv_d(6) '26' INTO gv_mon_from.
+  CONCATENATE gv_spmon '01' INTO gv_cal_from.
+  PERFORM last_day USING gv_spmon CHANGING gv_cal_to.
+  gv_itd_from = gs_proj-plfaz.
+  IF gv_itd_from IS INITIAL OR gv_itd_from > gv_mon_to.
+    gv_itd_from = '19000101'.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM col_letter USING    iv_col TYPE i
+                CHANGING cv_txt TYPE string.
+  DATA: lv_n TYPE i,
+        lv_r TYPE i,
+        lv_c TYPE c LENGTH 1.
+  CLEAR cv_txt.
+  lv_n = iv_col.
+  WHILE lv_n > 0.
+    lv_r = ( lv_n - 1 ) MOD 26.
+    lv_c = sy-abcde+lv_r(1).
+    CONCATENATE lv_c cv_txt INTO cv_txt.
+    lv_n = ( lv_n - 1 ) DIV 26.
+  ENDWHILE.
+ENDFORM.
+
+FORM cell_ref USING iv_col TYPE i iv_row TYPE i CHANGING cv TYPE string.
+  DATA lv_r TYPE string.
+  PERFORM col_letter USING iv_col CHANGING cv.
+  lv_r = iv_row.
+  CONDENSE lv_r.
+  CONCATENATE cv lv_r INTO cv.
+ENDFORM.
+
+FORM addr USING    iv_c1 TYPE i iv_r1 TYPE i
+                   iv_c2 TYPE i iv_r2 TYPE i
+          CHANGING cv    TYPE string.
+  DATA: lv_a TYPE string, lv_b TYPE string.
+  PERFORM cell_ref USING iv_c1 iv_r1 CHANGING lv_a.
+  PERFORM cell_ref USING iv_c2 iv_r2 CHANGING lv_b.
+  CONCATENATE lv_a ':' lv_b INTO cv.
+ENDFORM.
+
+FORM add_merge USING iv_c1 TYPE i iv_r1 TYPE i iv_c2 TYPE i iv_r2 TYPE i.
+  DATA lv_a TYPE string.
+  PERFORM addr USING iv_c1 iv_r1 iv_c2 iv_r2 CHANGING lv_a.
+  APPEND lv_a TO gt_merge.
+ENDFORM.
+
+* "AB12" -> col 28, row 12
+FORM parse_ref USING iv_ref TYPE string CHANGING cv_col TYPE i cv_row TYPE i.
+  DATA: lv_len TYPE i,
+        lv_i   TYPE i,
+        lv_off TYPE i,
+        lv_c   TYPE c LENGTH 1,
+        lv_num TYPE string.
+  CLEAR: cv_col, cv_row.
+  lv_len = strlen( iv_ref ).
+  DO lv_len TIMES.
+    lv_i = sy-index - 1.
+    lv_c = iv_ref+lv_i(1).
+    IF lv_c CA sy-abcde.
+      FIND lv_c IN sy-abcde MATCH OFFSET lv_off.
+      cv_col = cv_col * 26 + lv_off + 1.
+    ELSE.
+      lv_num = iv_ref+lv_i.
+      cv_row = lv_num.
+      EXIT.
+    ENDIF.
+  ENDDO.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM add_log USING iv_row TYPE i
+                   iv_ty  TYPE symsgty
+                   iv_txt TYPE any.
+  DATA ls_log TYPE ty_log.
+  ls_log-row   = iv_row.
+  ls_log-msgty = iv_ty.
+  ls_log-text  = iv_txt.
+  APPEND ls_log TO gt_log.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM show_log.
+  DATA: lo_alv TYPE REF TO cl_salv_table,
+        lo_col TYPE REF TO cl_salv_column,
+        lx     TYPE REF TO cx_salv_msg.
+  IF gt_log IS INITIAL.
+    RETURN.
+  ENDIF.
+  SORT gt_log BY row msgty.
+  TRY.
+      cl_salv_table=>factory( IMPORTING r_salv_table = lo_alv
+                              CHANGING  t_table      = gt_log ).
+      lo_alv->get_functions( )->set_all( abap_true ).
+      lo_alv->get_columns( )->set_optimize( abap_true ).
+      TRY.
+          lo_col = lo_alv->get_columns( )->get_column( 'ROW' ).
+          lo_col->set_short_text( 'Excel Row' ).
+          lo_col->set_medium_text( 'Excel Row' ).
+          lo_col = lo_alv->get_columns( )->get_column( 'TEXT' ).
+          lo_col->set_medium_text( 'Message' ).
+          lo_col->set_long_text( 'Message' ).
+        CATCH cx_salv_not_found.                        "#EC NO_HANDLER
+      ENDTRY.
+      lo_alv->display( ).
+    CATCH cx_salv_msg INTO lx.
+      MESSAGE lx TYPE 'I'.
+  ENDTRY.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Value <-> text helpers
+*----------------------------------------------------------------------*
+FORM ownhr_text USING iv TYPE zps_t_fr_itm-ownhr CHANGING cv TYPE string.
+  CASE iv.
+    WHEN gc_own.   cv = 'Own'.
+    WHEN gc_lease. cv = 'Lease'.
+    WHEN gc_hired. cv = 'Hired'.
+    WHEN OTHERS.   CLEAR cv.
+  ENDCASE.
+ENDFORM.
+
+FORM avl_text USING iv TYPE zps_t_fr_itm-avlrq CHANGING cv TYPE string.
+  CASE iv.
+    WHEN 'AVL'. cv = 'Avl'.
+    WHEN 'REQ'. cv = 'Req'.
+    WHEN 'SUR'. cv = 'Sur'.
+    WHEN OTHERS. CLEAR cv.
+  ENDCASE.
+ENDFORM.
+
+FORM avl_code USING iv TYPE string CHANGING cv TYPE zps_t_fr_itm-avlrq cv_ok TYPE abap_bool.
+  DATA lv TYPE string.
+  cv_ok = abap_true.
+  CLEAR cv.
+  lv = iv.
+  TRANSLATE lv TO UPPER CASE.
+  CONDENSE lv NO-GAPS.
+  IF strlen( lv ) > 3.
+    lv = lv(3).
+  ENDIF.
+  CASE lv.
+    WHEN 'AVL' OR 'REQ' OR 'SUR'. cv = lv.
+    WHEN ''.
+    WHEN OTHERS. cv_ok = abap_false.
+  ENDCASE.
+ENDFORM.
+
+FORM eqart_text USING iv TYPE eqart CHANGING cv TYPE string.
+  DATA ls_ea TYPE ty_eqart.
+  CLEAR cv.
+  IF iv IS INITIAL.
+    RETURN.
+  ENDIF.
+  READ TABLE gt_eqart INTO ls_ea WITH KEY eqart = iv.
+  IF sy-subrc = 0.
+    cv = ls_ea-eartx.
+  ELSE.
+    cv = iv.
+  ENDIF.
+ENDFORM.
+
+* text from the dropdown (or the code itself) -> EQART
+FORM eqart_code USING iv TYPE string CHANGING cv TYPE eqart cv_ok TYPE abap_bool.
+  DATA: ls_ea TYPE ty_eqart,
+        lv    TYPE string.
+  cv_ok = abap_true.
+  CLEAR cv.
+  IF iv IS INITIAL.
+    RETURN.
+  ENDIF.
+  lv = iv.
+  TRANSLATE lv TO UPPER CASE.
+  READ TABLE gt_eqart INTO ls_ea WITH KEY upper = lv.
+  IF sy-subrc = 0.
+    cv = ls_ea-eqart.
+    RETURN.
+  ENDIF.
+  LOOP AT gt_eqart INTO ls_ea.
+    IF ls_ea-eqart = lv.
+      cv = ls_ea-eqart.
+      RETURN.
+    ENDIF.
+  ENDLOOP.
+  cv_ok = abap_false.
+ENDFORM.
+
+* Own / Lease / Hired of an equipment: ZPS_T_FR_EQTYP mapping of EQTYP;
+* not mapped -> Hired if the equipment has a PO (ZZITO_PO_NUM), else Own
+FORM equi_ownhr CHANGING cs TYPE ty_equi.
+  DATA ls_et TYPE ty_eqtyp.
+  CLEAR cs-ownhr.
+  READ TABLE gt_eqtyp INTO ls_et WITH TABLE KEY eqtyp = cs-eqtyp.
+  IF sy-subrc = 0 AND ls_et-ownhr IS NOT INITIAL.
+    cs-ownhr = ls_et-ownhr.
+  ELSEIF cs-ebeln IS NOT INITIAL.
+    cs-ownhr = gc_hired.
+  ELSE.
+    cs-ownhr = gc_own.
+  ENDIF.
+ENDFORM.
+
+FORM class_text USING iv TYPE klasse_d CHANGING cv TYPE string.
+  DATA ls_cl TYPE ty_class.
+  CLEAR cv.
+  IF iv IS INITIAL.
+    RETURN.
+  ENDIF.
+  READ TABLE gt_class INTO ls_cl WITH KEY class = iv.
+  IF sy-subrc = 0.
+    cv = ls_cl-text.
+  ELSE.
+    cv = iv.
+  ENDIF.
+ENDFORM.
+
+* text from the dropdown (or the class name itself) -> KLAH-CLASS
+FORM class_code USING iv TYPE string CHANGING cv TYPE klasse_d cv_ok TYPE abap_bool.
+  DATA: ls_cl TYPE ty_class,
+        lv    TYPE string.
+  cv_ok = abap_true.
+  CLEAR cv.
+  IF iv IS INITIAL.
+    RETURN.
+  ENDIF.
+  lv = iv.
+  TRANSLATE lv TO UPPER CASE.
+  READ TABLE gt_class INTO ls_cl WITH KEY upper = lv.
+  IF sy-subrc = 0.
+    cv = ls_cl-class.
+    RETURN.
+  ENDIF.
+  LOOP AT gt_class INTO ls_cl.
+    IF ls_cl-class = lv.
+      cv = ls_cl-class.
+      RETURN.
+    ENDIF.
+  ENDLOOP.
+  cv_ok = abap_false.
+ENDFORM.
+
+FORM num2str USING iv TYPE any CHANGING cv TYPE string.
+  DATA lv_p TYPE p LENGTH 16 DECIMALS 2.
+  lv_p = iv.
+  cv = |{ lv_p }|.
+ENDFORM.
+
+FORM alpha_out USING iv TYPE any CHANGING cv TYPE string.
+  DATA lv TYPE c LENGTH 40.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+    EXPORTING
+      input  = iv
+    IMPORTING
+      output = lv.
+  cv = lv.
+  CONDENSE cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Recalculate formula fields (same logic as the Excel formulas)
+*----------------------------------------------------------------------*
+FORM months_between USING iv_from TYPE d iv_to TYPE d CHANGING cv TYPE p.
+  DATA lv_p TYPE p LENGTH 8 DECIMALS 0.
+  CLEAR cv.
+  IF iv_from IS INITIAL OR iv_to IS INITIAL.
+    RETURN.
+  ENDIF.
+  lv_p = ( iv_to - iv_from ) / gc_divisor.        " ROUND(..,0)
+  cv = lv_p.
+ENDFORM.
+
+* DATEDIF(from, to, "m") - complete months
+FORM datedif_m USING iv_from TYPE d iv_to TYPE d CHANGING cv TYPE i.
+  DATA: lv_y1 TYPE i, lv_m1 TYPE i, lv_d1 TYPE i,
+        lv_y2 TYPE i, lv_m2 TYPE i, lv_d2 TYPE i.
+  CLEAR cv.
+  IF iv_from IS INITIAL OR iv_to IS INITIAL OR iv_to < iv_from.
+    RETURN.
+  ENDIF.
+  lv_y1 = iv_from(4). lv_m1 = iv_from+4(2). lv_d1 = iv_from+6(2).
+  lv_y2 = iv_to(4).   lv_m2 = iv_to+4(2).   lv_d2 = iv_to+6(2).
+  cv = ( lv_y2 - lv_y1 ) * 12 + lv_m2 - lv_m1.
+  IF lv_d2 < lv_d1.
+    cv = cv - 1.
+  ENDIF.
+ENDFORM.
+
+FORM recalc CHANGING cs TYPE ty_line.
+  DATA: lv_m   TYPE i,
+        lv_tot TYPE zps_t_fr_itm-plncst.
+  PERFORM months_between USING cs-plfrm cs-plto CHANGING cs-plmm.
+  PERFORM months_between USING cs-rpfrm cs-rpto CHANGING cs-rpmm.
+  PERFORM datedif_m      USING cs-plfrm cs-plto CHANGING lv_m.
+  cs-utlpl  = lv_m * cs-qty.
+  lv_tot    = cs-pl_ihc + cs-pl_opr + cs-pl_fuel.
+  cs-plncst = lv_tot * cs-plmm * cs-qty.
+  cs-actcst = cs-it_ihc + cs-it_opr + cs-it_fuel.
+  cs-balcst = cs-plncst - cs-actcst.
+  cs-waers  = gv_waers.
+ENDFORM.
+
+*======================================================================*
+*  MASTER DATA / SAP VALUES
+*======================================================================*
+FORM get_lists.
+  TYPES: BEGIN OF lty_klah,
+           clint TYPE clint,
+           class TYPE klasse_d,
+         END OF lty_klah,
+         BEGIN OF lty_t370k,
+           eqart TYPE eqart,
+           eartx TYPE t370k_t-eartx,
+         END OF lty_t370k,
+         BEGIN OF lty_swor,
+           clint TYPE clint,
+           kschl TYPE klschl,
+         END OF lty_swor,
+         BEGIN OF lty_veq,
+           equnr TYPE equnr,
+           eqart TYPE eqart,
+           eqtyp TYPE eqtyp,
+           anlnr TYPE anln1,
+           anlun TYPE anln2,
+           bukrs TYPE bukrs,
+           daufn TYPE aufnr,
+           datab TYPE d,
+           datbi TYPE d,
+           ebeln TYPE ebeln,
+         END OF lty_veq,
+         BEGIN OF lty_eqkt,
+           equnr TYPE equnr,
+           eqktx TYPE ktx01,
+         END OF lty_eqkt,
+         BEGIN OF lty_obj,
+           objek TYPE cuobn,
+         END OF lty_obj,
+         BEGIN OF lty_inob,
+           cuobj TYPE cuobj,
+           objek TYPE cuobn,
+         END OF lty_inob,
+         BEGIN OF lty_kobj,
+           objek TYPE cuobn,
+         END OF lty_kobj,
+         BEGIN OF lty_kssk,
+           objek TYPE objnum,
+           clint TYPE clint,
+         END OF lty_kssk.
+  DATA: lt_klah  TYPE STANDARD TABLE OF lty_klah,
+        ls_klah  TYPE lty_klah,
+        lt_swor  TYPE HASHED TABLE OF lty_swor WITH UNIQUE KEY clint,
+        ls_swor  TYPE lty_swor,
+        lt_veq   TYPE STANDARD TABLE OF lty_veq,
+        ls_veq   TYPE lty_veq,
+        lt_eqkt  TYPE HASHED TABLE OF lty_eqkt WITH UNIQUE KEY equnr,
+        ls_eqkt  TYPE lty_eqkt,
+        lt_obj   TYPE STANDARD TABLE OF lty_obj,
+        ls_obj   TYPE lty_obj,
+        lt_inob  TYPE STANDARD TABLE OF lty_inob,
+        ls_inob  TYPE lty_inob,
+        lt_kobj  TYPE STANDARD TABLE OF lty_kobj,
+        ls_kobj  TYPE lty_kobj,
+        lt_kssk  TYPE STANDARD TABLE OF lty_kssk,
+        ls_kssk  TYPE lty_kssk,
+        ls_cl    TYPE ty_class,
+        lt_t370k TYPE STANDARD TABLE OF lty_t370k,
+        ls_t370k TYPE lty_t370k,
+        ls_ea    TYPE ty_eqart,
+        lt_et    TYPE STANDARD TABLE OF ty_eqtyp,
+        ls_ce    TYPE ty_clseq,
+        ls_uq    TYPE ty_equniq,
+        ls_ec    TYPE ty_eqcls,
+        ls_eq    TYPE ty_equi,
+        lv_eq    TYPE equnr,
+        lv_cu    TYPE cuobj.
+
+* fuel cost elements (optional) - TVARVC selection ZPS_T_FR_FUEL_KSTAR
+  CLEAR gr_fuel.
+  SELECT sign opti low high FROM tvarvc INTO TABLE gr_fuel
+    WHERE name = 'ZPS_T_FR_FUEL_KSTAR' AND type = 'S'.
+
+* --- Equipment Class: KLAH class type 002, description from SWOR -----
+  CLEAR: gt_class, gt_clseq, gt_equniq, gt_eqcls.
+  SELECT clint class FROM klah INTO TABLE lt_klah
+    WHERE klart = gc_klart.
+  IF lt_klah IS NOT INITIAL.
+    SELECT clint kschl FROM swor INTO TABLE lt_swor
+      FOR ALL ENTRIES IN lt_klah
+      WHERE clint = lt_klah-clint
+        AND spras = sy-langu
+        AND klpos = '01'.
+  ENDIF.
+  LOOP AT lt_klah INTO ls_klah.
+    CLEAR: ls_cl, ls_swor.
+    ls_cl-clint = ls_klah-clint.
+    ls_cl-class = ls_klah-class.
+    READ TABLE lt_swor INTO ls_swor WITH TABLE KEY clint = ls_klah-clint.
+    ls_cl-text = ls_swor-kschl.
+    IF ls_cl-text IS INITIAL.
+      ls_cl-text = ls_cl-class.
+    ENDIF.
+    ls_cl-upper = ls_cl-text.
+    TRANSLATE ls_cl-upper TO UPPER CASE.
+    APPEND ls_cl TO gt_class.
+  ENDLOOP.
+* same description on two classes -> add the class name
+  PERFORM class_unique.
+  SORT gt_class BY text.
+
+* --- Equipment Group: object types (T370K_T), description shown ------
+  CLEAR gt_eqart.
+  SELECT eqart eartx FROM t370k_t INTO TABLE lt_t370k
+    WHERE spras = sy-langu.
+  SORT lt_t370k BY eartx eqart.
+  LOOP AT lt_t370k INTO ls_t370k.
+    CLEAR ls_ea.
+    ls_ea-eqart = ls_t370k-eqart.
+    ls_ea-eartx = ls_t370k-eartx.
+    IF ls_ea-eartx IS INITIAL.
+      ls_ea-eartx = ls_ea-eqart.
+    ENDIF.
+    ls_ea-upper = ls_ea-eartx.
+    TRANSLATE ls_ea-upper TO UPPER CASE.
+    READ TABLE gt_eqart TRANSPORTING NO FIELDS WITH KEY upper = ls_ea-upper.
+    IF sy-subrc = 0.                     " same text twice -> add code
+      CONCATENATE ls_ea-eartx ' (' ls_ea-eqart ')' INTO ls_ea-eartx.
+      ls_ea-upper = ls_ea-eartx.
+      TRANSLATE ls_ea-upper TO UPPER CASE.
+    ENDIF.
+    APPEND ls_ea TO gt_eqart.
+  ENDLOOP.
+
+* --- equipment category (EQTYP) -> Own / Lease / Hired --------------
+  CLEAR gt_eqtyp.
+  SELECT eqtyp ownhr FROM zps_t_fr_eqtyp INTO TABLE lt_et.
+  INSERT LINES OF lt_et INTO TABLE gt_eqtyp.
+
+* --- Equipment of the project plant (current time segment) ----------
+* CONFIRM: ZZITO_PO_NUM is available in V_EQUI (customer append / view)
+  IF gs_proj-werks IS INITIAL.
+    RETURN.
+  ENDIF.
+  SELECT equnr eqart eqtyp anlnr anlun bukrs daufn datab datbi zzito_po_num
+    FROM v_equi INTO TABLE lt_veq
+    WHERE swerk = gs_proj-werks
+      AND datbi = gc_open_date.
+  SORT lt_veq BY equnr.
+  DELETE ADJACENT DUPLICATES FROM lt_veq COMPARING equnr.
+  IF lt_veq IS INITIAL.
+    RETURN.
+  ENDIF.
+  SELECT equnr eqktx FROM eqkt INTO TABLE lt_eqkt
+    FOR ALL ENTRIES IN lt_veq
+    WHERE equnr = lt_veq-equnr
+      AND spras = sy-langu.
+
+  LOOP AT lt_veq INTO ls_veq.
+*   cache for READ_EQUI
+    CLEAR: ls_eq, ls_eqkt.
+    READ TABLE lt_eqkt INTO ls_eqkt WITH TABLE KEY equnr = ls_veq-equnr.
+    ls_eq-equnr = ls_veq-equnr.
+    ls_eq-found = abap_true.
+    ls_eq-swerk = gs_proj-werks.
+    ls_eq-anlnr = ls_veq-anlnr.
+    ls_eq-anlun = ls_veq-anlun.
+    ls_eq-bukrs = ls_veq-bukrs.
+    ls_eq-daufn = ls_veq-daufn.
+    ls_eq-datab = ls_veq-datab.
+    ls_eq-datbi = ls_veq-datbi.
+    ls_eq-eqktx = ls_eqkt-eqktx.
+    ls_eq-ebeln = ls_veq-ebeln.
+    ls_eq-eqart = ls_veq-eqart.
+    ls_eq-eqtyp = ls_veq-eqtyp.
+    PERFORM equi_ownhr CHANGING ls_eq.
+    INSERT ls_eq INTO TABLE gt_equi.
+*   lookup list: equipment -> asset, sub-asset, description
+    CLEAR ls_uq.
+    PERFORM alpha_out USING ls_veq-equnr CHANGING ls_uq-equnr.
+    PERFORM asset_key USING ls_veq-anlnr '0000' CHANGING ls_uq-anln.
+    PERFORM sub_text USING ls_veq-anlnr ls_veq-anlun CHANGING ls_uq-anlun.
+    ls_uq-eqktx = ls_eqkt-eqktx.
+    PERFORM ownhr_text USING ls_eq-ownhr CHANGING ls_uq-own.
+    APPEND ls_uq TO gt_equniq.
+*   classification object key (INOB-OBJEK = equipment number)
+    ls_obj-objek = ls_veq-equnr.
+    APPEND ls_obj TO lt_obj.
+  ENDLOOP.
+
+* --- equipment -> class: INOB (CUOBJ) -> KSSK (CLINT) -----------------
+* Spec path KLAH-CLINT -> KSSK-OBJEK -> INOB-CUOBJ -> INOB-OBJEK = EQUNR,
+* read from the plant's equipment backwards (same result, smaller reads).
+  SELECT cuobj objek FROM inob INTO TABLE lt_inob
+    FOR ALL ENTRIES IN lt_obj
+    WHERE objek = lt_obj-objek
+      AND obtab = 'EQUI'
+      AND klart = gc_klart.
+  LOOP AT lt_inob INTO ls_inob.
+    ls_kobj-objek = ls_inob-cuobj.
+    APPEND ls_kobj TO lt_kobj.
+  ENDLOOP.
+* fallback: equipment classified directly (KSSK-OBJEK = EQUNR, no INOB)
+  LOOP AT lt_obj INTO ls_obj.
+    ls_kobj-objek = ls_obj-objek.
+    APPEND ls_kobj TO lt_kobj.
+  ENDLOOP.
+  SELECT objek clint FROM kssk INTO TABLE lt_kssk
+    FOR ALL ENTRIES IN lt_kobj
+    WHERE objek = lt_kobj-objek
+      AND mafid = 'O'
+      AND klart = gc_klart
+      AND lkenz = space.
+
+  SORT lt_inob BY cuobj.
+  LOOP AT lt_kssk INTO ls_kssk.
+    CLEAR lv_eq.
+    IF ls_kssk-objek(18) CO '0123456789'.
+      lv_cu = ls_kssk-objek.
+      READ TABLE lt_inob INTO ls_inob WITH KEY cuobj = lv_cu BINARY SEARCH.
+      IF sy-subrc = 0.
+        lv_eq = ls_inob-objek.
+      ENDIF.
+    ENDIF.
+    IF lv_eq IS INITIAL.
+      lv_eq = ls_kssk-objek.                       " direct classification
+      READ TABLE gt_equi TRANSPORTING NO FIELDS WITH TABLE KEY equnr = lv_eq.
+      CHECK sy-subrc = 0.
+    ENDIF.
+    READ TABLE gt_class INTO ls_cl WITH KEY clint = ls_kssk-clint.
+    CHECK sy-subrc = 0.
+    CLEAR ls_ce.
+    ls_ce-clstxt = ls_cl-text.
+    PERFORM alpha_out USING lv_eq CHANGING ls_ce-equnr.
+    APPEND ls_ce TO gt_clseq.
+    ls_ec-equnr = lv_eq.
+    ls_ec-class = ls_cl-class.
+    INSERT ls_ec INTO TABLE gt_eqcls.
+  ENDLOOP.
+* contiguous per class - required by the dependent dropdown (OFFSET)
+  SORT gt_clseq BY clstxt equnr.
+  DELETE ADJACENT DUPLICATES FROM gt_clseq COMPARING clstxt equnr.
+ENDFORM.
+
+* unique dropdown text per class: "Description" or "Description (CLASS)"
+FORM class_unique.
+  DATA: ls_cl   TYPE ty_class,
+        ls_nx   TYPE ty_class,
+        lv_ix   TYPE i,
+        lv_nx   TYPE i,
+        lv_dup  TYPE abap_bool,
+        lv_prev TYPE string.
+  SORT gt_class BY upper class.
+  LOOP AT gt_class INTO ls_cl.
+    lv_ix = sy-tabix.
+    lv_nx = lv_ix + 1.
+    CLEAR lv_dup.
+    IF ls_cl-upper = lv_prev.
+      lv_dup = abap_true.
+    ELSE.
+      READ TABLE gt_class INTO ls_nx INDEX lv_nx.
+      IF sy-subrc = 0 AND ls_nx-upper = ls_cl-upper.
+        lv_dup = abap_true.
+      ENDIF.
+    ENDIF.
+    lv_prev = ls_cl-upper.
+    IF lv_dup = abap_true AND ls_cl-text <> ls_cl-class.
+      CONCATENATE ls_cl-text ' (' ls_cl-class ')' INTO ls_cl-text.
+      MODIFY gt_class FROM ls_cl INDEX lv_ix TRANSPORTING text.
+    ENDIF.
+  ENDLOOP.
+  LOOP AT gt_class INTO ls_cl.
+    ls_cl-upper = ls_cl-text.
+    TRANSLATE ls_cl-upper TO UPPER CASE.
+    MODIFY gt_class FROM ls_cl TRANSPORTING upper.
+  ENDLOOP.
+ENDFORM.
+
+* 000000200045 / 0001 -> "200045-1"; sub-number 0 -> "200045"
+FORM asset_key USING iv_anln1 TYPE anln1 iv_anln2 TYPE anln2 CHANGING cv TYPE string.
+  DATA lv_sub TYPE string.
+  CLEAR cv.
+  IF iv_anln1 IS INITIAL.
+    RETURN.
+  ENDIF.
+  PERFORM alpha_out USING iv_anln1 CHANGING cv.
+  IF iv_anln2 IS NOT INITIAL AND iv_anln2 CN '0'.
+    PERFORM alpha_out USING iv_anln2 CHANGING lv_sub.
+    CONCATENATE cv '-' lv_sub INTO cv.
+  ENDIF.
+ENDFORM.
+
+* sub-asset number for display: 0000 -> "0", 0001 -> "1"; blank without asset
+FORM sub_text USING iv_anln1 TYPE anln1 iv_anln2 TYPE anln2 CHANGING cv TYPE string.
+  CLEAR cv.
+  IF iv_anln1 IS INITIAL.
+    RETURN.
+  ENDIF.
+  IF iv_anln2 IS INITIAL OR iv_anln2 CO '0'.
+    cv = '0'.
+  ELSE.
+    PERFORM alpha_out USING iv_anln2 CHANGING cv.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Equipment master (cached). Latest time segment of V_EQUI.
+* CONFIRM: ZZITO_PO_NUM (PO of hired equipment) is read from V_EQUI.
+*----------------------------------------------------------------------*
+FORM read_equi USING iv_equnr TYPE equnr CHANGING cs TYPE ty_equi.
+  DATA ls_new TYPE ty_equi.
+
+  READ TABLE gt_equi INTO cs WITH TABLE KEY equnr = iv_equnr.
+  IF sy-subrc = 0.
+    RETURN.
+  ENDIF.
+
+* not in the plant list (other plant / released) - read directly
+  CLEAR ls_new.
+  ls_new-equnr = iv_equnr.
+  SELECT swerk eqart eqtyp anlnr anlun bukrs daufn datab datbi zzito_po_num
+    FROM v_equi
+    INTO (ls_new-swerk, ls_new-eqart, ls_new-eqtyp, ls_new-anlnr, ls_new-anlun,
+          ls_new-bukrs, ls_new-daufn, ls_new-datab, ls_new-datbi, ls_new-ebeln)
+    UP TO 1 ROWS
+    WHERE equnr = iv_equnr
+    ORDER BY datbi DESCENDING.
+  ENDSELECT.
+  IF sy-subrc = 0.
+    ls_new-found = abap_true.
+    SELECT SINGLE eqktx FROM eqkt INTO ls_new-eqktx
+      WHERE equnr = iv_equnr AND spras = sy-langu.
+    PERFORM equi_ownhr CHANGING ls_new.
+  ENDIF.
+  INSERT ls_new INTO TABLE gt_equi.
+  cs = ls_new.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Master data + actual costs of one line for the reporting windows
+*----------------------------------------------------------------------*
+FORM fetch_sap USING iv_row TYPE i iv_log TYPE abap_bool CHANGING cs TYPE ty_line.
+  DATA: ls_eq  TYPE ty_equi,
+        lv_txt TYPE string,
+        lv_ext TYPE string.
+
+  CLEAR: cs-ac_ihc, cs-ac_opr, cs-ac_fuel, cs-it_ihc, cs-it_opr, cs-it_fuel,
+         cs-ownhr, cs-utlac, cs-depdt, cs-reldt, cs-daufn, cs-ebeln, cs-anlnr, cs-anln2,
+         cs-asstxt, cs-abukrs.
+  IF cs-qty IS INITIAL.
+    cs-qty = 1.                                " default: one equipment
+  ENDIF.
+
+  IF cs-equnr IS INITIAL.
+    PERFORM recalc CHANGING cs.
+    RETURN.
+  ENDIF.
+
+  PERFORM read_equi USING cs-equnr CHANGING ls_eq.
+  PERFORM alpha_out USING cs-equnr CHANGING lv_ext.
+  IF ls_eq-found = abap_false.
+    IF iv_log = abap_true.
+      CONCATENATE 'Equipment' lv_ext 'does not exist' INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING iv_row 'E' lv_txt.
+    ENDIF.
+    PERFORM recalc CHANGING cs.
+    RETURN.
+  ENDIF.
+
+  IF iv_log = abap_true.
+*   equipment must be in the project plant ...
+    IF ls_eq-swerk <> gs_proj-werks.
+      CONCATENATE 'Equipment' lv_ext 'is in plant' ls_eq-swerk ', not in project plant' gs_proj-werks
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING iv_row 'E' lv_txt.
+    ENDIF.
+*   ... and classified in the selected Equipment Class
+    IF cs-class IS NOT INITIAL.
+      READ TABLE gt_eqcls TRANSPORTING NO FIELDS
+        WITH TABLE KEY equnr = cs-equnr class = cs-class.
+      IF sy-subrc <> 0.
+        CONCATENATE 'Equipment' lv_ext 'is not classified in Equipment Class' cs-clstxt
+          INTO lv_txt SEPARATED BY space.
+        PERFORM add_log USING iv_row 'E' lv_txt.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+* master data (V_EQUI / EQKT / ZPS_T_FR_EQTYP)
+  cs-ownhr  = ls_eq-ownhr.
+  IF ls_eq-eqart IS NOT INITIAL.
+    IF iv_log = abap_true AND cs-eqart IS NOT INITIAL AND cs-eqart <> ls_eq-eqart.
+      CONCATENATE 'Equipment Group set from equipment master of' lv_ext
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING iv_row 'I' lv_txt.
+    ENDIF.
+    cs-eqart = ls_eq-eqart.
+    PERFORM eqart_text USING cs-eqart CHANGING cs-eqtxt.
+  ENDIF.
+  cs-anlnr  = ls_eq-anlnr.
+  cs-anln2  = ls_eq-anlun.
+  cs-abukrs = ls_eq-bukrs.
+  cs-daufn  = ls_eq-daufn.
+  cs-ebeln  = ls_eq-ebeln.
+  cs-asstxt = ls_eq-eqktx.
+  cs-depdt  = ls_eq-datab.
+  IF ls_eq-datbi <> gc_open_date.
+    cs-reldt = ls_eq-datbi.
+  ENDIF.
+
+* IHC / Hire
+  IF cs-ownhr = gc_hired.
+    IF cs-ebeln IS INITIAL.
+      IF iv_log = abap_true.
+        CONCATENATE 'Hired equipment' lv_ext 'has no PO (ZZITO_PO_NUM) - hire cost not fetched'
+          INTO lv_txt SEPARATED BY space.
+        PERFORM add_log USING iv_row 'W' lv_txt.
+      ENDIF.
+    ELSE.
+      PERFORM get_hire USING cs-ebeln gv_mon_from gv_mon_to CHANGING cs-ac_ihc.
+      PERFORM get_hire USING cs-ebeln gv_itd_from gv_mon_to CHANGING cs-it_ihc.
+    ENDIF.
+  ELSEIF cs-anlnr IS INITIAL.
+    IF iv_log = abap_true.
+      CONCATENATE 'Equipment' lv_ext 'has no asset - IHC not fetched'
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING iv_row 'W' lv_txt.
+    ENDIF.
+  ELSE.
+    PERFORM get_ihc USING cs-abukrs cs-anlnr cs-anln2 gv_mon_from gv_mon_to CHANGING cs-ac_ihc.
+    PERFORM get_ihc USING cs-abukrs cs-anlnr cs-anln2 gv_itd_from gv_mon_to CHANGING cs-it_ihc.
+  ENDIF.
+
+* Operator (OPEN POINT - see FORM get_operator)
+  PERFORM get_operator USING cs-equnr gv_mon_from gv_mon_to CHANGING cs-ac_opr.
+  PERFORM get_operator USING cs-equnr gv_itd_from gv_mon_to CHANGING cs-it_opr.
+
+* Fuel: KOC4 actual debits on the standing order, calendar month
+  IF cs-daufn IS NOT INITIAL.
+    PERFORM get_fuel USING cs-daufn gv_cal_from gv_cal_to CHANGING cs-ac_fuel.
+    PERFORM get_fuel USING cs-daufn gv_itd_from gv_cal_to CHANGING cs-it_fuel.
+  ELSEIF iv_log = abap_true.
+    CONCATENATE 'Equipment' lv_ext 'has no standing order (DAUFN) - fuel cost not fetched'
+      INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING iv_row 'W' lv_txt.
+  ENDIF.
+
+* Utilization actual (OPEN POINT - see FORM get_util)
+  PERFORM get_util USING cs-equnr gv_mon_from gv_mon_to CHANGING cs-utlac.
+
+  PERFORM recalc CHANGING cs.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Own / Lease: ZFI_IHC-IHCVALINR by BUKRS, ANLNR, ANLUN for the period
+* SBEGDA (26th of previous month) .. EENDDA (25th of month) - spec R1
+*----------------------------------------------------------------------*
+FORM get_ihc USING iv_bukrs TYPE bukrs
+                   iv_anln1 TYPE anln1
+                   iv_anln2 TYPE anln2
+                   iv_from  TYPE d
+                   iv_to    TYPE d
+             CHANGING cv    TYPE zps_t_fr_cst-ihc.
+  DATA lv_sum TYPE p LENGTH 16 DECIMALS 2.
+  CLEAR cv.
+  SELECT SUM( ihcvalinr ) FROM zfi_ihc INTO lv_sum
+    WHERE bukrs  = iv_bukrs
+      AND anln1  = iv_anln1
+      AND anln2  = iv_anln2
+      AND sbegda >= iv_from
+      AND eendda <= iv_to.
+  cv = lv_sum.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Hired equipment: accepted service entry sheets (ML84) on the PO
+* CONFIRM: ESSR posting date field (BUDAT) / acceptance flag (KZABN)
+*----------------------------------------------------------------------*
+FORM get_hire USING iv_ebeln TYPE ebeln
+                    iv_from  TYPE d
+                    iv_to    TYPE d
+              CHANGING cv    TYPE zps_t_fr_cst-ihc.
+  DATA lv_sum TYPE p LENGTH 16 DECIMALS 2.
+  CLEAR cv.
+  SELECT SUM( lwert ) FROM essr INTO lv_sum
+    WHERE ebeln = iv_ebeln
+      AND kzabn = abap_true
+      AND loekz = space
+      AND budat BETWEEN iv_from AND iv_to.
+  cv = lv_sum.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Operator cost - OPEN POINT, returns 0 until ZPM_LOG logic is agreed
+*----------------------------------------------------------------------*
+FORM get_operator USING iv_equnr TYPE equnr
+                        iv_from  TYPE d
+                        iv_to    TYPE d
+                  CHANGING cv    TYPE zps_t_fr_cst-opr.
+  CLEAR cv.
+  IF iv_equnr IS INITIAL OR iv_from > iv_to.
+    RETURN.
+  ENDIF.
+* OPEN POINT (highlighted in spec R1): operator mapped to the equipment,
+* salary cost for the period from ZPM_LOG - table fields to be confirmed.
+* Template once confirmed:
+*   DATA lv_sum TYPE p LENGTH 16 DECIMALS 2.
+*   SELECT SUM( oprcost ) FROM zpm_log INTO lv_sum
+*     WHERE equnr = iv_equnr
+*       AND logdt BETWEEN iv_from AND iv_to.
+*   cv = lv_sum.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Fuel: actual cost debits (KOC4 "Actual Cost Debit") on the standing
+* order, CO area currency.
+* Restricted to cost elements in TVARVC ZPS_T_FR_FUEL_KSTAR if maintained.
+*----------------------------------------------------------------------*
+FORM get_fuel USING iv_aufnr TYPE aufnr
+                    iv_from  TYPE d
+                    iv_to    TYPE d
+              CHANGING cv    TYPE zps_t_fr_cst-fuel.
+  DATA: lv_sum   TYPE p LENGTH 16 DECIMALS 2,
+        lv_objnr TYPE j_objnr.
+  CLEAR cv.
+  CONCATENATE 'OR' iv_aufnr INTO lv_objnr.
+  SELECT SUM( p~wkgbtr ) FROM coep AS p
+    INNER JOIN cobk AS k ON k~kokrs = p~kokrs AND k~belnr = p~belnr
+    INTO lv_sum
+    WHERE p~objnr = lv_objnr
+      AND p~wrttp = '04'
+      AND p~beknz = 'S'
+      AND p~kstar IN gr_fuel
+      AND k~budat BETWEEN iv_from AND iv_to.
+  cv = lv_sum.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Utilization actual - OPEN POINT, returns 0 until ZPM_AVUR logic is agreed
+*----------------------------------------------------------------------*
+FORM get_util USING iv_equnr TYPE equnr
+                    iv_from  TYPE d
+                    iv_to    TYPE d
+              CHANGING cv    TYPE zps_t_fr_itm-utlac.
+  CLEAR cv.
+  IF iv_equnr IS INITIAL OR iv_from > iv_to.
+    RETURN.
+  ENDIF.
+* OPEN POINT (spec R1): ZPM_AVUR is a report transaction ("use SWERK,
+* derived from the actual deployment period and Nos"). Options once the
+* business confirms the figure to take:
+*   a) read the table ZPM_AVUR reports from, with SWERK = PROJ-WERKS,
+*      EQUNR and the period, or
+*   b) SUBMIT <report of ZPM_AVUR> WITH ... EXPORTING LIST TO MEMORY
+*      AND RETURN, then LIST_FROM_MEMORY and pick the equipment's line.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Load a version: ZPS_T_FR_ITM + ZPS_T_FR_CST -> CT_LINE
+*----------------------------------------------------------------------*
+FORM load_version USING iv_versn TYPE zps_t_fr_hdr-versn CHANGING ct_line TYPE ty_t_line.
+  DATA: lt_itm TYPE STANDARD TABLE OF zps_t_fr_itm,
+        ls_itm TYPE zps_t_fr_itm,
+        lt_cst TYPE SORTED TABLE OF zps_t_fr_cst WITH NON-UNIQUE KEY linid cstyp,
+        ls_cst TYPE zps_t_fr_cst,
+        ls_ln  TYPE ty_line.
+
+  CLEAR ct_line.
+  SELECT * FROM zps_t_fr_itm INTO TABLE lt_itm
+    WHERE pspid = gs_proj-pspid AND versn = iv_versn.
+  SELECT * FROM zps_t_fr_cst INTO TABLE lt_cst
+    WHERE pspid = gs_proj-pspid AND versn = iv_versn.
+  SORT lt_itm BY seqnr linid.
+
+  LOOP AT lt_itm INTO ls_itm.
+    CLEAR ls_ln.
+    MOVE-CORRESPONDING ls_itm TO ls_ln.
+    LOOP AT lt_cst INTO ls_cst WHERE linid = ls_itm-linid.
+      CASE ls_cst-cstyp.
+        WHEN gc_cst_plan.
+          ls_ln-pl_ihc = ls_cst-ihc. ls_ln-pl_opr = ls_cst-opr. ls_ln-pl_fuel = ls_cst-fuel.
+        WHEN gc_cst_act.
+          ls_ln-ac_ihc = ls_cst-ihc. ls_ln-ac_opr = ls_cst-opr. ls_ln-ac_fuel = ls_cst-fuel.
+        WHEN gc_cst_itd.
+          ls_ln-it_ihc = ls_cst-ihc. ls_ln-it_opr = ls_cst-opr. ls_ln-it_fuel = ls_cst-fuel.
+      ENDCASE.
+    ENDLOOP.
+    PERFORM class_text USING ls_ln-class CHANGING ls_ln-clstxt.
+    PERFORM eqart_text USING ls_ln-eqart CHANGING ls_ln-eqtxt.
+    APPEND ls_ln TO ct_line.
+  ENDLOOP.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Is the line covered by the download filter (Own/Hired, period)?
+*----------------------------------------------------------------------*
+FORM in_scope USING is TYPE ty_line
+                    iv_ownhr TYPE zps_t_fr_itm-ownhr
+                    iv_perfr TYPE spmon
+                    iv_perto TYPE spmon
+              CHANGING cv TYPE abap_bool.
+  DATA: lv_wfrom TYPE d,
+        lv_wto   TYPE d,
+        lv_lfrom TYPE d,
+        lv_lto   TYPE d,
+        lv_to    TYPE spmon.
+
+  cv = abap_true.
+  IF iv_ownhr IS NOT INITIAL AND is-ownhr <> iv_ownhr.
+    cv = abap_false.
+    RETURN.
+  ENDIF.
+  IF iv_perfr IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  lv_to = iv_perto.
+  IF lv_to IS INITIAL.
+    lv_to = '999912'.
+  ENDIF.
+  CONCATENATE iv_perfr '01' INTO lv_wfrom.
+  PERFORM last_day USING lv_to CHANGING lv_wto.
+
+* revised plan wins over plan; undated lines are always shown
+  IF is-rpfrm IS NOT INITIAL OR is-rpto IS NOT INITIAL.
+    lv_lfrom = is-rpfrm. lv_lto = is-rpto.
+  ELSE.
+    lv_lfrom = is-plfrm. lv_lto = is-plto.
+  ENDIF.
+  IF lv_lfrom IS INITIAL AND lv_lto IS INITIAL.
+    RETURN.
+  ENDIF.
+  IF lv_lfrom IS INITIAL. lv_lfrom = '19000101'. ENDIF.
+  IF lv_lto   IS INITIAL. lv_lto   = gc_open_date. ENDIF.
+  IF lv_lfrom > lv_wto OR lv_lto < lv_wfrom.
+    cv = abap_false.
+  ENDIF.
+ENDFORM.
+
+FORM last_day USING iv_spmon TYPE spmon CHANGING cv_d TYPE d.
+  DATA: lv_y  TYPE i, lv_m TYPE i, lv_n TYPE n LENGTH 2, lv_yy TYPE n LENGTH 4.
+  IF iv_spmon = '999912'.
+    cv_d = gc_open_date.
+    RETURN.
+  ENDIF.
+  lv_y = iv_spmon(4).
+  lv_m = iv_spmon+4(2).
+  IF lv_m = 12.
+    lv_m = 1. lv_y = lv_y + 1.
+  ELSE.
+    lv_m = lv_m + 1.
+  ENDIF.
+  lv_n = lv_m. lv_yy = lv_y.
+  CONCATENATE lv_yy lv_n '01' INTO cv_d.
+  cv_d = cv_d - 1.
+ENDFORM.
+
+*======================================================================*
+*  DOWNLOAD
+*======================================================================*
+FORM download.
+  DATA: lv_ok  TYPE abap_bool,
+        lv_upd TYPE abap_bool,
+        lv_in  TYPE abap_bool,
+        lv_x   TYPE xstring,
+        lv_txt TYPE string,
+        lt_all TYPE ty_t_line,
+        ls_ln  TYPE ty_line.
+
+  PERFORM auth_check USING '03' space CHANGING lv_ok.
+  IF lv_ok = abap_false.
+    MESSAGE 'No authorisation to display the fleet schedule of this profit center' TYPE 'S' DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+  PERFORM auth_check USING '02' space CHANGING lv_upd.
+
+  IF p_file IS INITIAL AND gv_webgui = abap_false.
+    PERFORM f4_file.
+    IF p_file IS INITIAL.
+      MESSAGE 'Enter a file name' TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
+  ENDIF.
+
+* versions
+  SELECT MAX( versn ) FROM zps_t_fr_hdr INTO gv_latest
+    WHERE pspid = gs_proj-pspid.
+  IF p_versn IS NOT INITIAL.
+    SELECT SINGLE * FROM zps_t_fr_hdr INTO gs_hdr
+      WHERE pspid = gs_proj-pspid AND versn = p_versn.
+    IF sy-subrc <> 0.
+      MESSAGE 'Version not found for this project' TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
+    gv_versn = p_versn.
+  ELSEIF gv_latest IS NOT INITIAL.
+    SELECT SINGLE * FROM zps_t_fr_hdr INTO gs_hdr
+      WHERE pspid = gs_proj-pspid AND versn = gv_latest.
+    gv_versn = gv_latest.
+  ELSE.
+    CLEAR: gs_hdr, gv_versn.
+  ENDIF.
+
+  IF gv_versn IS INITIAL.
+    gv_mode = gc_mode_create.
+  ELSEIF gv_versn < gv_latest.
+    gv_mode = gc_mode_display.
+  ELSE.
+    gv_mode = gc_mode_maintain.
+  ENDIF.
+  IF lv_upd = abap_false.
+    gv_mode = gc_mode_display.
+  ENDIF.
+
+* reporting month and filter
+  IF gv_mode = gc_mode_display AND gv_versn IS NOT INITIAL AND gv_versn < gv_latest.
+    gv_spmon = gs_hdr-spmon.             " older version shown as saved
+  ELSE.
+    gv_spmon = p_perto.
+  ENDIF.
+  gv_perfr = p_perfr.
+  gv_perto = p_perto.
+  gv_ownhr = p_ownhr.
+  PERFORM set_windows.
+
+* header values
+  IF gv_versn IS NOT INITIAL.
+    gv_expcd  = gs_hdr-expcd.
+    gv_sncost = gs_hdr-sncost.
+  ELSE.
+    gv_expcd  = gs_proj-plsez.
+    CLEAR gv_sncost.
+  ENDIF.
+
+  PERFORM get_lists.
+
+* lines
+  CLEAR gt_line.
+  IF gv_versn IS NOT INITIAL.
+    PERFORM load_version USING gv_versn CHANGING lt_all.
+    LOOP AT lt_all INTO ls_ln.
+      PERFORM in_scope USING ls_ln gv_ownhr gv_perfr gv_perto CHANGING lv_in.
+      IF lv_in = abap_true.
+        APPEND ls_ln TO gt_line.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+
+* refresh SAP values for the reporting month (not for old versions)
+  IF NOT ( gv_versn IS NOT INITIAL AND gv_versn < gv_latest ).
+    LOOP AT gt_line INTO ls_ln.
+      PERFORM fetch_sap USING 0 abap_false CHANGING ls_ln.
+      MODIFY gt_line FROM ls_ln.
+    ENDLOOP.
+  ENDIF.
+
+  PERFORM complete_lists.
+  PERFORM build_sheet_cells.
+  PERFORM build_xlsx CHANGING lv_x.
+  PERFORM send_file USING lv_x CHANGING lv_ok.
+
+  IF lv_ok = abap_true.
+    CASE gv_mode.
+      WHEN gc_mode_create.
+        lv_txt = 'Template downloaded - new schedule (no version yet)'.
+      WHEN gc_mode_display.
+        CONCATENATE 'Version' gv_versn 'downloaded for display only (cannot be uploaded)'
+          INTO lv_txt SEPARATED BY space.
+      WHEN OTHERS.
+        CONCATENATE 'Version' gv_versn 'downloaded for maintenance' INTO lv_txt SEPARATED BY space.
+    ENDCASE.
+    MESSAGE lv_txt TYPE 'S'.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Equipment already on the lines but no longer in the project plant list
+* (released, moved) is added to the lookup list, so asset code, sub-asset
+* and description still show in Excel
+*----------------------------------------------------------------------*
+FORM complete_lists.
+  DATA: ls_ln TYPE ty_line,
+        ls_uq TYPE ty_equniq,
+        lv_k  TYPE string.
+  LOOP AT gt_line INTO ls_ln WHERE equnr IS NOT INITIAL.
+    PERFORM alpha_out USING ls_ln-equnr CHANGING lv_k.
+    READ TABLE gt_equniq TRANSPORTING NO FIELDS WITH KEY equnr = lv_k.
+    IF sy-subrc <> 0.
+      CLEAR ls_uq.
+      ls_uq-equnr = lv_k.
+      PERFORM asset_key USING ls_ln-anlnr '0000' CHANGING ls_uq-anln.
+      PERFORM sub_text USING ls_ln-anlnr ls_ln-anln2 CHANGING ls_uq-anlun.
+      ls_uq-eqktx = ls_ln-asstxt.
+      PERFORM ownhr_text USING ls_ln-ownhr CHANGING ls_uq-own.
+      APPEND ls_uq TO gt_equniq.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Cell buffer. Formulas are stored without the leading '='.
+*----------------------------------------------------------------------*
+FORM put USING    iv_row  TYPE i
+                  iv_col  TYPE i
+                  iv_kind TYPE c
+                  iv_val  TYPE any
+         CHANGING ct      TYPE ty_t_cell.
+  DATA ls_cell TYPE ty_cell.
+  ls_cell-row   = iv_row.
+  ls_cell-col   = iv_col.
+  ls_cell-kind  = iv_kind.
+  ls_cell-value = iv_val.
+  CONDENSE ls_cell-value.
+  IF ls_cell-value IS INITIAL.
+    RETURN.
+  ENDIF.
+  IF iv_kind = gc_k_date AND ( ls_cell-value CO '0' OR ls_cell-value = gc_open_date ).
+    RETURN.
+  ENDIF.
+  DELETE TABLE ct WITH TABLE KEY row = iv_row col = iv_col.
+  INSERT ls_cell INTO TABLE ct.
+ENDFORM.
+
+FORM put_amt USING iv_row TYPE i iv_col TYPE i iv_amt TYPE any.
+  DATA lv TYPE string.
+  IF iv_amt IS INITIAL.
+    RETURN.
+  ENDIF.
+  PERFORM num2str USING iv_amt CHANGING lv.
+  PERFORM put USING iv_row iv_col gc_k_num lv CHANGING gt_out.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Build every cell of the main sheet in GT_OUT
+*----------------------------------------------------------------------*
+FORM build_sheet_cells.
+  DATA: ls_ln  TYPE ty_line,
+        ls_col TYPE ty_col,
+        lv_r   TYPE i,
+        lv_n   TYPE i,
+        lv_s   TYPE string,
+        lv_d   TYPE d.
+
+  CLEAR: gt_out, gt_merge.
+
+* --- header block --------------------------------------------------
+  PERFORM put USING 2 1 gc_k_str gv_company CHANGING gt_out.
+  PERFORM add_merge USING 1 2 gc_c_rem 2.
+  PERFORM put USING 3 1 gc_k_str gv_bu CHANGING gt_out.
+  PERFORM add_merge USING 1 3 gc_c_rem 3.
+  PERFORM put USING gc_r_month gc_c_cbal gc_k_str 'Month-Year' CHANGING gt_out.
+  CONCATENATE gv_spmon '01' INTO lv_d.
+  PERFORM put USING gc_r_month gc_c_rem gc_k_date lv_d CHANGING gt_out.
+  PERFORM put USING 5 1 gc_k_str 'SCHEDULE OF FLEET & RESOURCES' CHANGING gt_out.
+  PERFORM add_merge USING 1 5 gc_c_rem 5.
+
+  PERFORM put USING gc_r_job  1 gc_k_str 'Job No :'          CHANGING gt_out.
+  PERFORM put USING gc_r_job  gc_c_jobval gc_k_str gv_ext_pspid  CHANGING gt_out.
+  PERFORM put USING gc_r_desc 1 gc_k_str 'Job Description :' CHANGING gt_out.
+  PERFORM put USING gc_r_desc gc_c_jobval gc_k_str gs_proj-post1 CHANGING gt_out.
+  PERFORM put USING gc_r_cli  1 gc_k_str 'Client :'          CHANGING gt_out.
+  PERFORM put USING gc_r_cli  gc_c_jobval gc_k_str gv_client    CHANGING gt_out.
+  PERFORM add_merge USING 1 gc_r_job  2 gc_r_job.
+  PERFORM add_merge USING 1 gc_r_desc 2 gc_r_desc.
+  PERFORM add_merge USING 1 gc_r_cli  2 gc_r_cli.
+  PERFORM add_merge USING gc_c_jobval gc_r_job  gc_c_jobend gc_r_job.
+  PERFORM add_merge USING gc_c_jobval gc_r_desc gc_c_jobend gc_r_desc.
+  PERFORM add_merge USING gc_c_jobval gc_r_cli  gc_c_jobend gc_r_cli.
+
+* legend (box in F, text in G:I)
+  PERFORM put USING gc_r_job  gc_c_legtxt gc_k_str 'Data Entry'                                CHANGING gt_out.
+  PERFORM put USING gc_r_desc gc_c_legtxt gc_k_str 'Data to be fetched from SAP ( Any Module)' CHANGING gt_out.
+  PERFORM put USING gc_r_cli  gc_c_legtxt gc_k_str 'Formula'                                   CHANGING gt_out.
+  PERFORM add_merge USING gc_c_legtxt gc_r_job  gc_c_legend gc_r_job.
+  PERFORM add_merge USING gc_c_legtxt gc_r_desc gc_c_legend gc_r_desc.
+  PERFORM add_merge USING gc_c_legtxt gc_r_cli  gc_c_legend gc_r_cli.
+
+* contractual dates (labels AD:AG, values AH:AI)
+  PERFORM put USING gc_r_job  gc_c_hlab gc_k_str 'Contractual Start Date'        CHANGING gt_out.
+  PERFORM put USING gc_r_desc gc_c_hlab gc_k_str 'Contractual Completion Date'   CHANGING gt_out.
+  PERFORM put USING gc_r_cli  gc_c_hlab gc_k_str 'Expected Completion Date'      CHANGING gt_out.
+  PERFORM put USING gc_r_sanc gc_c_hlab gc_k_str 'Sanctioned / Contracted Cost'  CHANGING gt_out.
+  PERFORM put USING gc_r_job  gc_c_hval gc_k_date gs_proj-plfaz CHANGING gt_out.
+  PERFORM put USING gc_r_desc gc_c_hval gc_k_date gs_proj-plsez CHANGING gt_out.
+  PERFORM put USING gc_r_cli  gc_c_hval gc_k_date gv_expcd      CHANGING gt_out.
+  IF gv_sncost IS NOT INITIAL.
+    PERFORM num2str USING gv_sncost CHANGING lv_s.
+    PERFORM put USING gc_r_sanc gc_c_hval gc_k_num lv_s CHANGING gt_out.
+  ENDIF.
+  lv_r = gc_r_job.
+  DO 4 TIMES.
+    PERFORM add_merge USING gc_c_hlab lv_r gc_c_hlabe lv_r.
+    PERFORM add_merge USING gc_c_hval lv_r gc_c_hvale lv_r.
+    lv_r = lv_r + 1.
+  ENDDO.
+
+* --- column group captions (row 11) ---------------------------------
+  PERFORM put USING gc_r_grp gc_c_pihc gc_k_str 'Planned Cost Per Month' CHANGING gt_out.
+  PERFORM add_merge USING gc_c_pihc gc_r_grp gc_c_ptot gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_aihc gc_k_str 'Actual Cost Per Month'  CHANGING gt_out.
+  PERFORM add_merge USING gc_c_aihc gc_r_grp gc_c_atot gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_pfrm gc_k_str 'Plan'                   CHANGING gt_out.
+  PERFORM add_merge USING gc_c_pfrm gc_r_grp gc_c_pmm gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_rfrm gc_k_str 'Rev. Plan'              CHANGING gt_out.
+  PERFORM add_merge USING gc_c_rfrm gc_r_grp gc_c_rmm gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_upl  gc_k_str 'Utilization in %'       CHANGING gt_out.
+  PERFORM add_merge USING gc_c_upl gc_r_grp gc_c_uac gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_ihir gc_k_str 'ITD Cost'               CHANGING gt_out.
+  PERFORM add_merge USING gc_c_ihir gc_r_grp gc_c_itot gc_r_grp.
+  PERFORM put USING gc_r_grp gc_c_cpl  gc_k_str 'Cost'                   CHANGING gt_out.
+  PERFORM add_merge USING gc_c_cpl gc_r_grp gc_c_cbal gc_r_grp.
+
+* --- table header (row 12) ------------------------------------------
+  LOOP AT gt_col INTO ls_col.
+    PERFORM put USING gc_r_head ls_col-col gc_k_str ls_col-name CHANGING gt_out.
+  ENDLOOP.
+
+* --- resource lines ---------------------------------------------------
+  lv_r = gc_r_head.
+  LOOP AT gt_line INTO ls_ln.
+    lv_r = lv_r + 1.
+    PERFORM line_cells USING lv_r ls_ln.
+  ENDLOOP.
+
+* spare rows (not in display mode); a table needs at least one row
+  IF gv_mode <> gc_mode_display.
+    lv_n = p_spare.
+    IF gt_line IS INITIAL AND lv_n < gc_new_rows.
+      lv_n = gc_new_rows.
+    ENDIF.
+    IF lv_n < 1.
+      lv_n = 1.
+    ENDIF.
+  ELSEIF gt_line IS INITIAL.
+    lv_n = 1.
+  ELSE.
+    lv_n = 0.
+  ENDIF.
+  DO lv_n TIMES.
+    lv_r = lv_r + 1.
+    CLEAR ls_ln.
+    PERFORM line_cells USING lv_r ls_ln.
+  ENDDO.
+  gv_lastrow = lv_r.
+
+* --- totals row (table totals row) -----------------------------------
+  gv_totrow = gv_lastrow + 1.
+  PERFORM put USING gv_totrow gc_c_sno gc_k_str 'Total' CHANGING gt_out.
+  LOOP AT gt_col INTO ls_col WHERE tot = 'S'.
+    CONCATENATE 'SUBTOTAL(109,' gc_table '[' ls_col-name '])' INTO lv_s.
+    PERFORM put USING gv_totrow ls_col-col gc_k_form lv_s CHANGING gt_out.
+  ENDLOOP.
+
+* --- signatures -------------------------------------------------------
+  gv_sigrow = gv_totrow + 4.
+  PERFORM put USING gv_sigrow gc_c_eqart gc_k_str '(Planning Incharge)'   CHANGING gt_out.
+  PERFORM put USING gv_sigrow gc_c_ownc gc_k_str '(Sr. Planning Manager)' CHANGING gt_out.
+  PERFORM put USING gv_sigrow gc_c_cbal gc_k_str '(Project Manager)'      CHANGING gt_out.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM line_cells USING iv_r TYPE i is TYPE ty_line.
+  DATA: ls_col TYPE ty_col,
+        lv_s   TYPE string.
+
+* formula columns are written in every row (calculated columns),
+* incl. Qty = 1 and the asset / sub-asset / description lookups
+  LOOP AT gt_col INTO ls_col WHERE calc IS NOT INITIAL.
+    PERFORM put USING iv_r ls_col-col gc_k_form ls_col-calc CHANGING gt_out.
+  ENDLOOP.
+  IF is-linid IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  PERFORM put USING iv_r gc_c_eqart gc_k_str is-eqtxt  CHANGING gt_out.
+  PERFORM put USING iv_r gc_c_class gc_k_str is-clstxt CHANGING gt_out.
+  IF is-equnr IS NOT INITIAL.
+    PERFORM alpha_out USING is-equnr CHANGING lv_s.
+    PERFORM put USING iv_r gc_c_equnr gc_k_str lv_s CHANGING gt_out.
+  ENDIF.
+  PERFORM avl_text USING is-avlrq CHANGING lv_s.
+  PERFORM put USING iv_r gc_c_avl  gc_k_str lv_s       CHANGING gt_out.
+  PERFORM put_amt USING iv_r gc_c_qty is-qty.
+  PERFORM put USING iv_r gc_c_ownc gc_k_str is-owncd   CHANGING gt_out.
+
+  PERFORM put_amt USING iv_r gc_c_pihc is-pl_ihc.
+  PERFORM put_amt USING iv_r gc_c_popr is-pl_opr.
+  PERFORM put_amt USING iv_r gc_c_pful is-pl_fuel.
+  PERFORM put_amt USING iv_r gc_c_aihc is-ac_ihc.
+  PERFORM put_amt USING iv_r gc_c_aopr is-ac_opr.
+  PERFORM put_amt USING iv_r gc_c_aful is-ac_fuel.
+
+  PERFORM put USING iv_r gc_c_pfrm gc_k_date is-plfrm CHANGING gt_out.
+  PERFORM put USING iv_r gc_c_pto  gc_k_date is-plto  CHANGING gt_out.
+  PERFORM put USING iv_r gc_c_rfrm gc_k_date is-rpfrm CHANGING gt_out.
+  PERFORM put USING iv_r gc_c_rto  gc_k_date is-rpto  CHANGING gt_out.
+
+  PERFORM put_amt USING iv_r gc_c_uac is-utlac.
+  PERFORM put USING iv_r gc_c_dep gc_k_date is-depdt CHANGING gt_out.
+  PERFORM put USING iv_r gc_c_rel gc_k_date is-reldt CHANGING gt_out.
+  PERFORM put_amt USING iv_r gc_c_ihir is-it_ihc.
+  PERFORM put_amt USING iv_r gc_c_iopr is-it_opr.
+  PERFORM put_amt USING iv_r gc_c_iful is-it_fuel.
+
+  PERFORM put USING iv_r gc_c_rem gc_k_str is-remark CHANGING gt_out.
+  lv_s = is-linid.
+  PERFORM put USING iv_r gc_c_lin gc_k_str lv_s CHANGING gt_out.
+ENDFORM.
+
+*======================================================================*
+*  XLSX WRITER
+*======================================================================*
+FORM build_xlsx CHANGING cv_zip TYPE xstring.
+  DATA: lo_zip  TYPE REF TO cl_abap_zip,
+        lt_list TYPE ty_t_cell,
+        lt_ctl  TYPE ty_t_cell,
+        lv_xml  TYPE string,
+        lv_name TYPE string,
+        lv_defs TYPE string.
+
+  PERFORM build_list_cells CHANGING lt_list lv_defs.
+  PERFORM build_ctl_cells CHANGING lt_ctl.
+
+  CREATE OBJECT lo_zip.
+
+  PERFORM xml_content_types CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip '[Content_Types].xml' lv_xml.
+
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="' gc_ns_pkg '">'
+    '<Relationship Id="rId1" Type="' gc_ns_rel '/officeDocument" Target="xl/workbook.xml"/>'
+    '</Relationships>' INTO lv_xml.
+  PERFORM add_zip USING lo_zip '_rels/.rels' lv_xml.
+
+  PERFORM xml_escape USING gc_sheet_main CHANGING lv_name.
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<workbook xmlns="' gc_ns_main '" xmlns:r="' gc_ns_rel '">'
+    '<workbookProtection workbookPassword="' gc_pwd_hash '" lockStructure="1"/>'
+    '<bookViews><workbookView activeTab="0"/></bookViews>'
+    '<sheets>'
+    '<sheet name="' lv_name '" sheetId="1" r:id="rId1"/>'
+    '<sheet name="' gc_sheet_list '" sheetId="2" state="veryHidden" r:id="rId2"/>'
+    '<sheet name="' gc_sheet_ctrl '" sheetId="3" state="veryHidden" r:id="rId3"/>'
+    '</sheets>'
+    lv_defs
+    '<calcPr calcId="0" fullCalcOnLoad="1"/>'
+    '</workbook>' INTO lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/workbook.xml' lv_xml.
+
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="' gc_ns_pkg '">'
+    '<Relationship Id="rId1" Type="' gc_ns_rel '/worksheet" Target="worksheets/sheet1.xml"/>'
+    '<Relationship Id="rId2" Type="' gc_ns_rel '/worksheet" Target="worksheets/sheet2.xml"/>'
+    '<Relationship Id="rId3" Type="' gc_ns_rel '/worksheet" Target="worksheets/sheet3.xml"/>'
+    '<Relationship Id="rId4" Type="' gc_ns_rel '/styles" Target="styles.xml"/>'
+    '</Relationships>' INTO lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/_rels/workbook.xml.rels' lv_xml.
+
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="' gc_ns_pkg '">'
+    '<Relationship Id="rId1" Type="' gc_ns_rel '/table" Target="../tables/table1.xml"/>'
+    '</Relationships>' INTO lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/worksheets/_rels/sheet1.xml.rels' lv_xml.
+
+  PERFORM xml_styles CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/styles.xml' lv_xml.
+
+  PERFORM xml_main_sheet CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/worksheets/sheet1.xml' lv_xml.
+
+  PERFORM xml_table CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/tables/table1.xml' lv_xml.
+
+  PERFORM xml_simple_sheet USING lt_list '28' CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/worksheets/sheet2.xml' lv_xml.
+
+  PERFORM xml_simple_sheet USING lt_ctl '14' CHANGING lv_xml.
+  PERFORM add_zip USING lo_zip 'xl/worksheets/sheet3.xml' lv_xml.
+
+  cv_zip = lo_zip->save( ).
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* LISTS sheet (dropdown sources) + defined names
+*   A Own/Hired  B Avl/Req/Sur  C Equipment Group  (D unused)
+*   E Equipment Class   F:G class -> equipment (dependent dropdown)
+*   H:L equipment -> asset, sub-asset, description, Own/Hired (lookups)
+*----------------------------------------------------------------------*
+FORM build_list_cells CHANGING ct TYPE ty_t_cell cv_defs TYPE string.
+  DATA: lv_s    TYPE string,
+        lv_r    TYPE i,
+        ls_cl   TYPE ty_class,
+        ls_ce   TYPE ty_clseq,
+        ls_uq   TYPE ty_equniq,
+        ls_ea   TYPE ty_eqart,
+        lt_name TYPE string_table.
+
+  CLEAR: ct, cv_defs.
+  PERFORM put USING 1 1 gc_k_str 'Own/Hired'     CHANGING ct.
+  PERFORM put USING 2 1 gc_k_str 'Own'           CHANGING ct.
+  PERFORM put USING 3 1 gc_k_str 'Lease'         CHANGING ct.
+  PERFORM put USING 4 1 gc_k_str 'Hired'         CHANGING ct.
+  PERFORM add_name USING 'L_OWN' 1 4 CHANGING lt_name.
+
+  PERFORM put USING 1 2 gc_k_str 'Avl/Req/Sur'   CHANGING ct.
+  PERFORM put USING 2 2 gc_k_str 'Avl'           CHANGING ct.
+  PERFORM put USING 3 2 gc_k_str 'Req'           CHANGING ct.
+  PERFORM put USING 4 2 gc_k_str 'Sur'           CHANGING ct.
+  PERFORM add_name USING 'L_AVL' 2 4 CHANGING lt_name.
+
+* C: Equipment Group (object types)   D: not used
+  PERFORM put USING 1 3 gc_k_str 'Equipment Group' CHANGING ct.
+  lv_r = 1.
+  LOOP AT gt_eqart INTO ls_ea.
+    lv_r = lv_r + 1.
+    PERFORM put USING lv_r 3 gc_k_str ls_ea-eartx CHANGING ct.
+  ENDLOOP.
+  IF lv_r > 1.
+    PERFORM add_name USING 'L_EQART' 3 lv_r CHANGING lt_name.
+  ENDIF.
+
+* E: Equipment Class dropdown (KLAH type 002 / SWOR)
+  PERFORM put USING 1 5 gc_k_str 'Equipment Class' CHANGING ct.
+  lv_r = 1.
+  LOOP AT gt_class INTO ls_cl.
+    lv_r = lv_r + 1.
+    PERFORM put USING lv_r 5 gc_k_str ls_cl-text CHANGING ct.
+  ENDLOOP.
+  IF lv_r > 1.
+    PERFORM add_name USING 'L_CLASS' 5 lv_r CHANGING lt_name.
+  ENDIF.
+
+* F:G: class -> equipment, sorted by class (dependent dropdown on D)
+  PERFORM put USING 1 6 gc_k_str 'Class'     CHANGING ct.
+  PERFORM put USING 1 7 gc_k_str 'Equipment' CHANGING ct.
+  lv_r = 1.
+  LOOP AT gt_clseq INTO ls_ce.
+    lv_r = lv_r + 1.
+    PERFORM put USING lv_r 6 gc_k_str ls_ce-clstxt CHANGING ct.
+    PERFORM put USING lv_r 7 gc_k_str ls_ce-equnr  CHANGING ct.
+  ENDLOOP.
+
+* H:L: equipment -> asset, sub-asset, description, Own/Hired (lookups)
+  PERFORM put USING 1 8  gc_k_str 'Equipment'         CHANGING ct.
+  PERFORM put USING 1 9  gc_k_str 'Asset'             CHANGING ct.
+  PERFORM put USING 1 10 gc_k_str 'Sub-Asset'         CHANGING ct.
+  PERFORM put USING 1 11 gc_k_str 'Asset Description' CHANGING ct.
+  PERFORM put USING 1 12 gc_k_str 'Own/Hired'         CHANGING ct.
+  lv_r = 1.
+  LOOP AT gt_equniq INTO ls_uq.
+    lv_r = lv_r + 1.
+    PERFORM put USING lv_r 8  gc_k_str ls_uq-equnr CHANGING ct.
+    PERFORM put USING lv_r 9  gc_k_str ls_uq-anln  CHANGING ct.
+    PERFORM put USING lv_r 10 gc_k_str ls_uq-anlun CHANGING ct.
+    PERFORM put USING lv_r 11 gc_k_str ls_uq-eqktx CHANGING ct.
+    PERFORM put USING lv_r 12 gc_k_str ls_uq-own   CHANGING ct.
+  ENDLOOP.
+
+  CONCATENATE LINES OF lt_name INTO lv_s.
+  CONCATENATE '<definedNames>' lv_s '</definedNames>' INTO cv_defs.
+ENDFORM.
+
+FORM add_name USING iv_name TYPE any iv_col TYPE i iv_last TYPE i
+              CHANGING ct TYPE string_table.
+  DATA: lv_c TYPE string,
+        lv_n TYPE string,
+        lv_x TYPE string.
+  PERFORM col_letter USING iv_col CHANGING lv_c.
+  lv_n = iv_last.
+  CONDENSE lv_n.
+  CONCATENATE '<definedName name="' iv_name '">' gc_sheet_list '!$' lv_c '$2:$' lv_c '$' lv_n
+              '</definedName>' INTO lv_x.
+  APPEND lv_x TO ct.
+ENDFORM.
+
+* is there a defined name for this list?
+FORM has_list USING iv_name TYPE any CHANGING cv TYPE abap_bool.
+  cv = abap_true.
+  CASE iv_name.
+    WHEN 'L_CLASS'. IF gt_class IS INITIAL. cv = abap_false. ENDIF.
+    WHEN 'L_EQART'. IF gt_eqart IS INITIAL. cv = abap_false. ENDIF.
+    WHEN 'EQUI'.    IF gt_clseq IS INITIAL. cv = abap_false. ENDIF.
+  ENDCASE.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* CONTROL sheet: marker, project, base version, reporting month,
+* filter, mode, downloaded at/by
+*----------------------------------------------------------------------*
+FORM build_ctl_cells CHANGING ct TYPE ty_t_cell.
+  DATA lv_s TYPE string.
+  CLEAR ct.
+  PERFORM put USING 1 1 gc_k_str gc_marker    CHANGING ct.
+  PERFORM put USING 1 2 gc_k_str gv_ext_pspid CHANGING ct.
+  lv_s = gv_versn.
+  IF lv_s IS INITIAL.
+    lv_s = '000'.
+  ENDIF.
+  PERFORM put USING 1 3 gc_k_str lv_s     CHANGING ct.
+  lv_s = gv_spmon.
+  PERFORM put USING 1 4 gc_k_str lv_s     CHANGING ct.
+  lv_s = gv_perfr.
+  IF gv_perfr IS INITIAL. CLEAR lv_s. ENDIF.
+  PERFORM put USING 1 5 gc_k_str lv_s     CHANGING ct.
+  lv_s = gv_perto.
+  IF gv_perto IS INITIAL. CLEAR lv_s. ENDIF.
+  PERFORM put USING 1 6 gc_k_str lv_s     CHANGING ct.
+  PERFORM put USING 1 7 gc_k_str gv_ownhr CHANGING ct.
+  PERFORM put USING 1 8 gc_k_str gv_mode  CHANGING ct.
+  CONCATENATE sy-datum sy-uzeit sy-uname INTO lv_s SEPARATED BY space.
+  PERFORM put USING 1 9 gc_k_str lv_s     CHANGING ct.
+  PERFORM put USING 2 1 gc_k_str 'Do not change this sheet' CHANGING ct.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM add_zip USING io_zip  TYPE REF TO cl_abap_zip
+                   iv_name TYPE any
+                   iv_xml  TYPE string.
+  DATA: lo_conv TYPE REF TO cl_abap_conv_out_ce,
+        lv_x    TYPE xstring,
+        lv_name TYPE string.
+  lo_conv = cl_abap_conv_out_ce=>create( encoding = 'UTF-8' ).
+  lo_conv->write( data = iv_xml ).
+  lv_x = lo_conv->get_buffer( ).
+  lv_name = iv_name.
+  io_zip->add( name = lv_name content = lv_x ).
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM xml_escape USING iv TYPE any CHANGING cv TYPE string.
+  cv = iv.
+  REPLACE ALL OCCURRENCES OF '&' IN cv WITH '&amp;'.
+  REPLACE ALL OCCURRENCES OF '<' IN cv WITH '&lt;'.
+  REPLACE ALL OCCURRENCES OF '>' IN cv WITH '&gt;'.
+  REPLACE ALL OCCURRENCES OF '"' IN cv WITH '&quot;'.
+  REPLACE ALL OCCURRENCES OF cl_abap_char_utilities=>horizontal_tab IN cv WITH ` `.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* NOTE: no '...' literal below ends with a space - CONCATENATE drops
+* trailing blanks of text literals. Separating blanks lead the next one.
+*----------------------------------------------------------------------*
+FORM xml_content_types CHANGING cv TYPE string.
+  CONCATENATE
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="' gc_ns_ct '">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/xl/workbook.xml"'
+      ' ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="' gc_ct_sheet '"/>'
+    '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="' gc_ct_sheet '"/>'
+    '<Override PartName="/xl/worksheets/sheet3.xml" ContentType="' gc_ct_sheet '"/>'
+    '<Override PartName="/xl/tables/table1.xml"'
+      ' ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.table+xml"/>'
+    '<Override PartName="/xl/styles.xml"'
+      ' ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+    '</Types>' INTO cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Colours (legend): entry C1F0C8 green, SAP AFE4F7 blue, formula
+* D9D9D9 grey, header D9E1F2. cellXfs order = gc_s_* constants.
+*----------------------------------------------------------------------*
+FORM xml_styles CHANGING cv TYPE string.
+  DATA lv_prot TYPE string.
+* entry cells stay editable on the protected sheet, except in display-only files
+  IF gv_mode = gc_mode_display.
+    lv_prot = '<protection locked="1"/>'.
+  ELSE.
+    lv_prot = '<protection locked="0"/>'.
+  ENDIF.
+  CONCATENATE
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<styleSheet xmlns="' gc_ns_main '">'
+    '<numFmts count="2"><numFmt numFmtId="164" formatCode="d\-mmm\-yy"/>'
+    '<numFmt numFmtId="165" formatCode="mmm\-yy"/></numFmts>'
+    '<fonts count="4">'
+      '<font><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+      '<font><b/><sz val="18"/><name val="Calibri"/><family val="2"/></font>'
+      '<font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>'
+      '<font><b/><sz val="16"/><name val="Calibri"/><family val="2"/></font>'
+    '</fonts>'
+    '<fills count="6">'
+      '<fill><patternFill patternType="none"/></fill>'
+      '<fill><patternFill patternType="gray125"/></fill>'
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFD9E1F2"/><bgColor indexed="64"/></patternFill></fill>'
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFC1F0C8"/><bgColor indexed="64"/></patternFill></fill>'
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFAFE4F7"/><bgColor indexed="64"/></patternFill></fill>'
+      '<fill><patternFill patternType="solid"><fgColor rgb="FFD9D9D9"/><bgColor indexed="64"/></patternFill></fill>'
+    '</fills>'
+    '<borders count="2">'
+      '<border><left/><right/><top/><bottom/><diagonal/></border>'
+      '<border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right>'
+      '<top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border>'
+    '</borders>'
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+    '<cellXfs count="24">'
+*     0 none
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+*     1 company
+      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">'
+        '<alignment horizontal="center" vertical="center"/></xf>'
+*     2 label
+      '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">'
+        '<alignment vertical="center"/></xf>'
+*     3 title
+      '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1">'
+        '<alignment horizontal="center" vertical="center"/></xf>'
+*     4 header
+      '<xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1"'
+        ' applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>'
+*     5-8 entry: text, number, date, general - the only unlocked cells
+      '<xf numFmtId="49" fontId="0" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1"'
+        ' applyBorder="1" applyProtection="1">' lv_prot '</xf>'
+      '<xf numFmtId="3" fontId="0" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1"'
+        ' applyBorder="1" applyProtection="1">' lv_prot '</xf>'
+      '<xf numFmtId="164" fontId="0" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1"'
+        ' applyBorder="1" applyAlignment="1" applyProtection="1"><alignment horizontal="center"/>' lv_prot '</xf>'
+      '<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"'
+        ' applyAlignment="1" applyProtection="1"><alignment horizontal="center"/>' lv_prot '</xf>'
+*     9-12 SAP: text, number, date, 2 decimals
+      '<xf numFmtId="49" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+      '<xf numFmtId="3" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+      '<xf numFmtId="164" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1"'
+        ' applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>'
+      '<xf numFmtId="2" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+*     13 formula number, 14 formula S.No
+      '<xf numFmtId="3" fontId="0" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>'
+      '<xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1"'
+        ' applyAlignment="1"><alignment horizontal="center"/></xf>'
+*     15 total row
+      '<xf numFmtId="3" fontId="2" fillId="2" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1"'
+        ' applyFill="1" applyBorder="1"/>'
+*     16 header date value, 17 Month-Year
+      '<xf numFmtId="164" fontId="2" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"'
+        ' applyAlignment="1"><alignment horizontal="left"/></xf>'
+      '<xf numFmtId="165" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1"'
+        ' applyBorder="1" applyAlignment="1"><alignment horizontal="center"/></xf>'
+*     18-20 legend boxes
+      '<xf numFmtId="0" fontId="0" fillId="3" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+      '<xf numFmtId="0" fontId="0" fillId="4" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+      '<xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1"/>'
+*     21 line id (hidden column)
+      '<xf numFmtId="49" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1"/>'
+*     22 SAP list (blue, editable): Equipment code dropdown
+      '<xf numFmtId="49" fontId="0" fillId="4" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1"'
+        ' applyBorder="1" applyProtection="1">' lv_prot '</xf>'
+*     23 white entry (editable, no fill): Qty
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"'
+        ' applyProtection="1"><alignment horizontal="center"/>' lv_prot '</xf>'
+    '</cellXfs>'
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
+    '</styleSheet>' INTO cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* style of a table body cell from the column class / format
+*----------------------------------------------------------------------*
+FORM body_style USING is_col TYPE ty_col CHANGING cv TYPE i.
+  CASE is_col-cls.
+    WHEN gc_cls_entry.
+      CASE is_col-fmt.
+        WHEN gc_fmt_text. cv = gc_s_e_text.
+        WHEN gc_fmt_date. cv = gc_s_e_date.
+        WHEN gc_fmt_gen.  cv = gc_s_e_gen.
+        WHEN OTHERS.      cv = gc_s_e_num.
+      ENDCASE.
+    WHEN gc_cls_sap.
+      CASE is_col-fmt.
+        WHEN gc_fmt_text. cv = gc_s_s_text.
+        WHEN gc_fmt_date. cv = gc_s_s_date.
+        WHEN gc_fmt_dec.  cv = gc_s_s_dec.
+        WHEN OTHERS.      cv = gc_s_s_num.
+      ENDCASE.
+    WHEN gc_cls_white.
+      cv = gc_s_w_entry.
+    WHEN gc_cls_slist.
+      cv = gc_s_s_list.
+    WHEN gc_cls_slook.
+      cv = gc_s_s_text.
+    WHEN gc_cls_form.
+      IF is_col-fmt = gc_fmt_gen.
+        cv = gc_s_f_sno.
+      ELSE.
+        cv = gc_s_f_num.
+      ENDIF.
+    WHEN OTHERS.
+      cv = gc_s_sys.
+  ENDCASE.
+ENDFORM.
+
+* style of a header-block cell (rows 1-10)
+FORM top_style USING iv_row TYPE i iv_col TYPE i CHANGING cv TYPE i.
+  cv = gc_s_none.
+  CASE iv_row.
+    WHEN 2.
+      cv = gc_s_company.
+    WHEN 3 OR 5.
+      cv = gc_s_title.
+    WHEN gc_r_month.
+      IF iv_col = gc_c_rem.
+        cv = gc_s_month.
+      ELSE.
+        cv = gc_s_label.
+      ENDIF.
+    WHEN OTHERS.
+      IF iv_col = 1 OR iv_col = gc_c_hlab.
+        cv = gc_s_label.
+      ELSEIF iv_col = gc_c_legbox.              " legend boxes
+        CASE iv_row.
+          WHEN gc_r_job.  cv = gc_s_leg_e.
+          WHEN gc_r_desc. cv = gc_s_leg_s.
+          WHEN gc_r_cli.  cv = gc_s_leg_f.
+        ENDCASE.
+      ELSEIF iv_col = gc_c_hval.
+        CASE iv_row.
+          WHEN gc_r_cli.  cv = gc_s_e_date.     " expected completion: entry
+          WHEN gc_r_sanc. cv = gc_s_e_num.      " sanctioned cost: entry
+          WHEN OTHERS.    cv = gc_s_hdate.
+        ENDCASE.
+      ELSEIF iv_col = gc_c_jobval.
+        cv = gc_s_label.
+      ENDIF.
+  ENDCASE.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM xml_cell USING    is_cell  TYPE ty_cell
+                       iv_style TYPE i
+              CHANGING ct_xml   TYPE string_table.
+  DATA: lv_ref  TYPE string,
+        lv_s    TYPE string,
+        lv_v    TYPE string,
+        lv_part TYPE string,
+        lv_d    TYPE d,
+        lv_base TYPE d VALUE '18991230',
+        lv_days TYPE i.
+
+  PERFORM cell_ref USING is_cell-col is_cell-row CHANGING lv_ref.
+  lv_s = iv_style.
+  CONDENSE lv_s.
+
+  CASE is_cell-kind.
+    WHEN gc_k_str.
+      PERFORM xml_escape USING is_cell-value CHANGING lv_v.
+      CONCATENATE '<c r="' lv_ref '" s="' lv_s '" t="inlineStr"><is><t xml:space="preserve">'
+                  lv_v '</t></is></c>' INTO lv_part.
+    WHEN gc_k_num.
+      CONCATENATE '<c r="' lv_ref '" s="' lv_s '"><v>' is_cell-value '</v></c>' INTO lv_part.
+    WHEN gc_k_date.
+      lv_d = is_cell-value.
+      lv_days = lv_d - lv_base.               " Excel serial date
+      lv_v = lv_days.
+      CONDENSE lv_v.
+      CONCATENATE '<c r="' lv_ref '" s="' lv_s '"><v>' lv_v '</v></c>' INTO lv_part.
+    WHEN gc_k_form.
+      PERFORM xml_escape USING is_cell-value CHANGING lv_v.
+      CONCATENATE '<c r="' lv_ref '" s="' lv_s '"><f>' lv_v '</f></c>' INTO lv_part.
+    WHEN OTHERS.                               " empty, styled cell
+      CONCATENATE '<c r="' lv_ref '" s="' lv_s '"/>' INTO lv_part.
+  ENDCASE.
+  APPEND lv_part TO ct_xml.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM xml_main_sheet CHANGING cv TYPE string.
+  DATA: lt_xml   TYPE string_table,
+        ls_cell  TYPE ty_cell,
+        ls_col   TYPE ty_col,
+        lv_r     TYPE i,
+        lv_style TYPE i,
+        lv_rs    TYPE string,
+        lv_cs    TYPE string,
+        lv_part  TYPE string,
+        lv_a     TYPE string,
+        lv_n     TYPE string,
+        lv_ok    TYPE abap_bool,
+        lv_hid   TYPE string,
+        lv_ht    TYPE string.
+
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<worksheet xmlns="' gc_ns_main '" xmlns:r="' gc_ns_rel '">'
+    '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>'
+    '<sheetViews><sheetView tabSelected="1" zoomScale="85" workbookViewId="0">'
+    '<pane xSplit="9" ySplit="12" topLeftCell="J13" activePane="bottomRight" state="frozen"/>'
+    '<selection pane="topRight"/><selection pane="bottomLeft"/>'
+    '<selection pane="bottomRight" activeCell="J13" sqref="J13"/>'
+    '</sheetView></sheetViews>'
+    '<sheetFormatPr defaultRowHeight="15"/>'
+    '<cols>' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+  LOOP AT gt_col INTO ls_col.
+    lv_cs = ls_col-col. CONDENSE lv_cs.
+    CLEAR lv_hid.
+    IF ls_col-cls = gc_cls_sys.
+      lv_hid = ' hidden="1"'.                       " Line ID
+    ENDIF.
+    CONCATENATE '<col min="' lv_cs '" max="' lv_cs '" width="' ls_col-width '" customWidth="1"' lv_hid '/>'
+      INTO lv_part.
+    APPEND lv_part TO lt_xml.
+  ENDLOOP.
+  APPEND '</cols><sheetData>' TO lt_xml.
+
+  DO gv_sigrow TIMES.
+    lv_r = sy-index.
+    lv_rs = lv_r. CONDENSE lv_rs.
+
+    CLEAR lv_ht.
+    CASE lv_r.
+      WHEN 2.          lv_ht = ' ht="23" customHeight="1"'.
+      WHEN 5.          lv_ht = ' ht="21" customHeight="1"'.
+      WHEN gc_r_head.  lv_ht = ' ht="45" customHeight="1"'.
+    ENDCASE.
+    CONCATENATE '<row r="' lv_rs '"' lv_ht '>' INTO lv_part.
+    APPEND lv_part TO lt_xml.
+
+    IF lv_r < gc_r_grp OR lv_r > gv_totrow.
+*     header block / signatures: only filled cells (+ legend boxes)
+      IF lv_r BETWEEN gc_r_job AND gc_r_cli.
+        CLEAR ls_cell.
+        ls_cell-row = lv_r. ls_cell-col = gc_c_legbox.
+        INSERT ls_cell INTO TABLE gt_out.                 " no-op if present
+      ENDIF.
+      IF lv_r BETWEEN gc_r_cli AND gc_r_sanc.             " entry boxes
+        CLEAR ls_cell.
+        ls_cell-row = lv_r. ls_cell-col = gc_c_hval.
+        INSERT ls_cell INTO TABLE gt_out.
+      ENDIF.
+      LOOP AT gt_out INTO ls_cell WHERE row = lv_r.
+        IF lv_r > gv_totrow.
+          lv_style = gc_s_label.
+        ELSE.
+          PERFORM top_style USING lv_r ls_cell-col CHANGING lv_style.
+        ENDIF.
+        PERFORM xml_cell USING ls_cell lv_style CHANGING lt_xml.
+      ENDLOOP.
+    ELSE.
+*     table area: every column, so fills / borders cover empty cells
+      LOOP AT gt_col INTO ls_col.
+        READ TABLE gt_out INTO ls_cell WITH TABLE KEY row = lv_r col = ls_col-col.
+        IF sy-subrc <> 0.
+          CLEAR ls_cell.
+          ls_cell-row = lv_r.
+          ls_cell-col = ls_col-col.
+        ENDIF.
+        IF lv_r <= gc_r_head.
+          lv_style = gc_s_head.
+        ELSEIF lv_r = gv_totrow.
+          lv_style = gc_s_total.
+        ELSE.
+          PERFORM body_style USING ls_col CHANGING lv_style.
+        ENDIF.
+        PERFORM xml_cell USING ls_cell lv_style CHANGING lt_xml.
+      ENDLOOP.
+    ENDIF.
+    APPEND '</row>' TO lt_xml.
+  ENDDO.
+  APPEND '</sheetData>' TO lt_xml.
+
+* sheet protection: SAP, formula, header and hidden cells are locked;
+* filter and column / row resizing stay allowed
+  CONCATENATE '<sheetProtection password="' gc_pwd_hash '" sheet="1" objects="1" scenarios="1"'
+    ' formatColumns="0" formatRows="0" autoFilter="0"/>' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+
+* merged cells
+  lv_n = lines( gt_merge ). CONDENSE lv_n.
+  CONCATENATE '<mergeCells count="' lv_n '">' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+  LOOP AT gt_merge INTO lv_a.
+    CONCATENATE '<mergeCell ref="' lv_a '"/>' INTO lv_part.
+    APPEND lv_part TO lt_xml.
+  ENDLOOP.
+  APPEND '</mergeCells>' TO lt_xml.
+
+* data validations
+  APPEND '<dataValidations>' TO lt_xml.
+  PERFORM has_list USING 'L_EQART' CHANGING lv_ok.
+  IF lv_ok = abap_true.
+    PERFORM dv_list USING gc_c_eqart 'L_EQART' 'Equipment Group' CHANGING lt_xml.
+  ENDIF.
+  PERFORM has_list USING 'L_CLASS' CHANGING lv_ok.
+  IF lv_ok = abap_true.
+    PERFORM dv_list USING gc_c_class 'L_CLASS' 'Equipment Class' CHANGING lt_xml.
+  ENDIF.
+  PERFORM has_list USING 'EQUI' CHANGING lv_ok.
+  IF lv_ok = abap_true.
+    PERFORM dv_equipment CHANGING lt_xml.
+  ENDIF.
+  PERFORM dv_list USING gc_c_avl   'L_AVL'   'Avl/Req/Sur'   CHANGING lt_xml.
+  PERFORM dv_numbers CHANGING lt_xml.
+  PERFORM dv_dates CHANGING lt_xml.
+  APPEND '</dataValidations>' TO lt_xml.
+
+  CONCATENATE '<pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.3" footer="0.3"/>'
+    '<pageSetup paperSize="8" orientation="landscape" fitToHeight="0"/>'
+    '<tableParts count="1"><tablePart r:id="rId1"/></tableParts>'
+    '</worksheet>' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+
+  CONCATENATE LINES OF lt_xml INTO cv.
+ENDFORM.
+
+* list dropdown on one column of the table body
+FORM dv_list USING iv_col TYPE i iv_name TYPE any iv_title TYPE any
+             CHANGING ct TYPE string_table.
+  DATA: lv_a    TYPE string,
+        lv_part TYPE string.
+  PERFORM addr USING iv_col gc_r_data iv_col gv_lastrow CHANGING lv_a.
+  CONCATENATE '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1"'
+    ' errorTitle="' iv_title '" error="Select a value from the list"'
+    ' sqref="' lv_a '"><formula1>' iv_name '</formula1></dataValidation>' INTO lv_part.
+  APPEND lv_part TO ct.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Equipment code: dependent dropdown - equipment of the Equipment Class
+* selected in column C of the same row (LISTS!F:G, sorted by class):
+*   OFFSET(LISTS!$G$1, MATCH($C13,LISTS!$F:$F,0)-1, 0,
+*          COUNTIF(LISTS!$F:$F,$C13), 1)
+*----------------------------------------------------------------------*
+FORM dv_equipment CHANGING ct TYPE string_table.
+  DATA: lv_a    TYPE string,
+        lv_c    TYPE string,
+        lv_part TYPE string.
+  PERFORM addr USING gc_c_equnr gc_r_data gc_c_equnr gv_lastrow CHANGING lv_a.
+  PERFORM cell_ref USING gc_c_class gc_r_data CHANGING lv_c.
+  CONCATENATE '$' lv_c INTO lv_c.                         " $C13
+  CONCATENATE '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1"'
+    ' errorTitle="Equipment code" error="Select the Equipment Class first, then an equipment of that class"'
+    ' sqref="' lv_a '"><formula1>OFFSET(' gc_sheet_list '!$G$1,MATCH(' lv_c ',' gc_sheet_list
+    '!$F:$F,0)-1,0,COUNTIF(' gc_sheet_list '!$F:$F,' lv_c '),1)</formula1></dataValidation>'
+    INTO lv_part.
+  APPEND lv_part TO ct.
+ENDFORM.
+
+* planned costs and Qty: numbers >= 0
+FORM dv_numbers CHANGING ct TYPE string_table.
+  DATA: lv_a    TYPE string,
+        lv_b    TYPE string,
+        lv_part TYPE string.
+  PERFORM addr USING gc_c_pihc gc_r_data gc_c_pful gv_lastrow CHANGING lv_a.
+  PERFORM addr USING gc_c_qty  gc_r_data gc_c_qty  gv_lastrow CHANGING lv_b.
+  CONCATENATE '<dataValidation type="decimal" operator="greaterThanOrEqual" allowBlank="1"'
+    ' showErrorMessage="1" errorTitle="Number" error="Enter a number (0 or more)"'
+    ' sqref="' lv_a ` ` lv_b '"><formula1>0</formula1></dataValidation>' INTO lv_part.
+  APPEND lv_part TO ct.
+ENDFORM.
+
+* plan / revised plan dates
+FORM dv_dates CHANGING ct TYPE string_table.
+  DATA: lv_a    TYPE string,
+        lv_b    TYPE string,
+        lv_part TYPE string.
+  PERFORM addr USING gc_c_pfrm gc_r_data gc_c_pto gv_lastrow CHANGING lv_a.
+  PERFORM addr USING gc_c_rfrm gc_r_data gc_c_rto gv_lastrow CHANGING lv_b.
+  CONCATENATE '<dataValidation type="date" operator="greaterThan" allowBlank="1"'
+    ' showErrorMessage="1" errorTitle="Date" error="Enter a date, e.g. 01-Oct-26"'
+    ' sqref="' lv_a ` ` lv_b '"><formula1>1</formula1></dataValidation>' INTO lv_part.
+  APPEND lv_part TO ct.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Excel Table over the resource lines (header row 12 .. totals row)
+*----------------------------------------------------------------------*
+FORM xml_table CHANGING cv TYPE string.
+  DATA: lt_xml  TYPE string_table,
+        ls_col  TYPE ty_col,
+        lv_ref  TYPE string,
+        lv_af   TYPE string,
+        lv_id   TYPE string,
+        lv_n    TYPE string,
+        lv_nm   TYPE string,
+        lv_f    TYPE string,
+        lv_part TYPE string.
+
+  PERFORM addr USING 1 gc_r_head gc_c_last gv_totrow  CHANGING lv_ref.
+  PERFORM addr USING 1 gc_r_head gc_c_last gv_lastrow CHANGING lv_af.
+  lv_n = lines( gt_col ). CONDENSE lv_n.
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<table xmlns="' gc_ns_main '" id="1" name="' gc_table '" displayName="' gc_table '"'
+    ' ref="' lv_ref '" totalsRowCount="1">'
+    '<autoFilter ref="' lv_af '"/>'
+    '<tableColumns count="' lv_n '">' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+
+  LOOP AT gt_col INTO ls_col.
+    lv_id = sy-tabix. CONDENSE lv_id.
+    PERFORM xml_escape USING ls_col-name CHANGING lv_nm.
+    CASE ls_col-tot.
+      WHEN 'L'.
+        CONCATENATE '<tableColumn id="' lv_id '" name="' lv_nm '" totalsRowLabel="Total"' INTO lv_part.
+      WHEN 'S'.
+        CONCATENATE '<tableColumn id="' lv_id '" name="' lv_nm '" totalsRowFunction="sum"' INTO lv_part.
+      WHEN OTHERS.
+        CONCATENATE '<tableColumn id="' lv_id '" name="' lv_nm '"' INTO lv_part.
+    ENDCASE.
+    IF ls_col-calc IS INITIAL.
+      CONCATENATE lv_part '/>' INTO lv_part.
+    ELSE.
+      PERFORM xml_escape USING ls_col-calc CHANGING lv_f.
+      CONCATENATE lv_part '><calculatedColumnFormula>' lv_f '</calculatedColumnFormula></tableColumn>'
+        INTO lv_part.
+    ENDIF.
+    APPEND lv_part TO lt_xml.
+  ENDLOOP.
+
+  CONCATENATE '</tableColumns>'
+    '<tableStyleInfo name="TableStyleLight1" showFirstColumn="0" showLastColumn="0"'
+    ' showRowStripes="0" showColumnStripes="0"/>'
+    '</table>' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+  CONCATENATE LINES OF lt_xml INTO cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* plain sheet from a cell table (LISTS, CONTROL)
+*----------------------------------------------------------------------*
+FORM xml_simple_sheet USING it_cells TYPE ty_t_cell iv_width TYPE any
+                      CHANGING cv TYPE string.
+  DATA: lt_xml  TYPE string_table,
+        ls_cell TYPE ty_cell,
+        lv_old  TYPE i,
+        lv_rs   TYPE string,
+        lv_part TYPE string,
+        lv_st   TYPE i.
+
+  CONCATENATE '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<worksheet xmlns="' gc_ns_main '" xmlns:r="' gc_ns_rel '">'
+    '<cols><col min="1" max="10" width="' iv_width '" customWidth="1"/></cols>'
+    '<sheetData>' INTO lv_part.
+  APPEND lv_part TO lt_xml.
+
+  LOOP AT it_cells INTO ls_cell.
+    IF ls_cell-row <> lv_old.
+      IF lv_old > 0.
+        APPEND '</row>' TO lt_xml.
+      ENDIF.
+      lv_rs = ls_cell-row. CONDENSE lv_rs.
+      CONCATENATE '<row r="' lv_rs '">' INTO lv_part.
+      APPEND lv_part TO lt_xml.
+      lv_old = ls_cell-row.
+    ENDIF.
+    lv_st = gc_s_none.
+    PERFORM xml_cell USING ls_cell lv_st CHANGING lt_xml.
+  ENDLOOP.
+  IF lv_old > 0.
+    APPEND '</row>' TO lt_xml.
+  ENDIF.
+  APPEND '</sheetData></worksheet>' TO lt_xml.
+  CONCATENATE LINES OF lt_xml INTO cv.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Binary download - in WebGUI / Fiori this is a browser download
+*----------------------------------------------------------------------*
+FORM send_file USING iv_x TYPE xstring CHANGING cv_ok TYPE abap_bool.
+  DATA: lt_bin  TYPE solix_tab,
+        lv_len  TYPE i,
+        lv_file TYPE string.
+
+  CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+    EXPORTING
+      buffer        = iv_x
+    IMPORTING
+      output_length = lv_len
+    TABLES
+      binary_tab    = lt_bin.
+
+  lv_file = p_file.
+  IF lv_file IS INITIAL.
+    PERFORM default_name CHANGING lv_file.
+  ENDIF.
+
+  cl_gui_frontend_services=>gui_download(
+    EXPORTING
+      bin_filesize = lv_len
+      filename     = lv_file
+      filetype     = 'BIN'
+    CHANGING
+      data_tab     = lt_bin
+    EXCEPTIONS
+      OTHERS       = 1 ).
+  IF sy-subrc <> 0.
+    cv_ok = abap_false.
+    MESSAGE 'File could not be saved - check the path / close the file if open' TYPE 'S' DISPLAY LIKE 'E'.
+  ELSE.
+    cv_ok = abap_true.
+  ENDIF.
+ENDFORM.
+
+*======================================================================*
+*  UPLOAD
+*======================================================================*
+FORM upload.
+  DATA: lt_bin  TYPE solix_tab,
+        lv_len  TYPE i,
+        lv_file TYPE string,
+        lv_x    TYPE xstring,
+        lv_ok   TYPE abap_bool.
+
+  PERFORM auth_check USING '02' space CHANGING lv_ok.
+  IF lv_ok = abap_false.
+    MESSAGE 'No authorisation to change the fleet schedule of this profit center' TYPE 'S' DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  lv_file = p_file.
+  IF lv_file IS INITIAL.
+    IF gv_webgui = abap_true.
+      lv_file = 'Fleet_Resource_Schedule.xlsx'.   " browser opens the file picker
+    ELSE.
+      MESSAGE 'Enter the file to upload' TYPE 'S' DISPLAY LIKE 'E'.
+      RETURN.
+    ENDIF.
+  ENDIF.
+
+  cl_gui_frontend_services=>gui_upload(
+    EXPORTING
+      filename   = lv_file
+      filetype   = 'BIN'
+    IMPORTING
+      filelength = lv_len
+    CHANGING
+      data_tab   = lt_bin
+    EXCEPTIONS
+      OTHERS     = 1 ).
+  IF sy-subrc <> 0 OR lv_len = 0.
+    MESSAGE 'File could not be read' TYPE 'S' DISPLAY LIKE 'E'.
+    RETURN.
+  ENDIF.
+
+  CALL FUNCTION 'SCMS_BINARY_TO_XSTRING'
+    EXPORTING
+      input_length = lv_len
+    IMPORTING
+      buffer       = lv_x
+    TABLES
+      binary_tab   = lt_bin
+    EXCEPTIONS
+      OTHERS       = 1.
+
+  PERFORM read_xlsx USING lv_x CHANGING lv_ok.
+  IF lv_ok = abap_false.
+    PERFORM show_log.
+    RETURN.
+  ENDIF.
+
+  PERFORM check_control.
+  IF gt_log IS INITIAL.
+    PERFORM check_headers.
+  ENDIF.
+  IF gt_log IS NOT INITIAL.
+    PERFORM show_log.
+    RETURN.
+  ENDIF.
+
+  PERFORM get_lists.
+  IF gv_versn IS NOT INITIAL.
+    PERFORM load_version USING gv_versn CHANGING gt_base.
+  ENDIF.
+
+  PERFORM parse_header.
+  PERFORM parse_rows.
+  PERFORM merge_with_base.
+  PERFORM check_lines.
+
+  READ TABLE gt_log TRANSPORTING NO FIELDS WITH KEY msgty = 'E'.
+  IF sy-subrc = 0.
+    PERFORM add_log USING 0 'E' 'Upload rejected - correct the errors and upload again. Nothing saved.'.
+  ELSE.
+    PERFORM save_version.
+  ENDIF.
+  PERFORM show_log.
+ENDFORM.
+
+*======================================================================*
+*  XLSX READER - fills GT_IN (main sheet) and GT_CTL (CONTROL sheet)
+*======================================================================*
+FORM parse_xml USING iv_x TYPE xstring CHANGING co_doc TYPE REF TO if_ixml_document.
+  DATA: lo_ixml   TYPE REF TO if_ixml,
+        lo_sf     TYPE REF TO if_ixml_stream_factory,
+        lo_is     TYPE REF TO if_ixml_istream,
+        lo_parser TYPE REF TO if_ixml_parser.
+  CLEAR co_doc.
+  lo_ixml   = cl_ixml=>create( ).
+  lo_sf     = lo_ixml->create_stream_factory( ).
+  lo_is     = lo_sf->create_istream_xstring( iv_x ).
+  co_doc    = lo_ixml->create_document( ).
+  lo_parser = lo_ixml->create_parser( stream_factory = lo_sf
+                                      istream        = lo_is
+                                      document       = co_doc ).
+  IF lo_parser->parse( ) <> 0.
+    CLEAR co_doc.
+  ENDIF.
+ENDFORM.
+
+* concatenated text of all <t> below an element (rich-text runs)
+FORM node_text USING io_el TYPE REF TO if_ixml_element CHANGING cv TYPE string.
+  DATA: lo_coll TYPE REF TO if_ixml_node_collection,
+        lo_iter TYPE REF TO if_ixml_node_iterator,
+        lo_node TYPE REF TO if_ixml_node,
+        lv_t    TYPE string.
+  CLEAR cv.
+  lo_coll = io_el->get_elements_by_tag_name_ns( name = 't' uri = gc_ns_main ).
+  lo_iter = lo_coll->create_iterator( ).
+  lo_node = lo_iter->get_next( ).
+  WHILE lo_node IS BOUND.
+    lv_t = lo_node->get_value( ).
+    CONCATENATE cv lv_t INTO cv RESPECTING BLANKS.
+    lo_node = lo_iter->get_next( ).
+  ENDWHILE.
+ENDFORM.
+
+FORM read_xlsx USING iv_x TYPE xstring CHANGING cv_ok TYPE abap_bool.
+  DATA: lo_zip   TYPE REF TO cl_abap_zip,
+        lo_doc   TYPE REF TO if_ixml_document,
+        lo_coll  TYPE REF TO if_ixml_node_collection,
+        lo_iter  TYPE REF TO if_ixml_node_iterator,
+        lo_el    TYPE REF TO if_ixml_element,
+        lv_part  TYPE xstring,
+        lt_sst   TYPE string_table,
+        lv_txt   TYPE string,
+        lv_name  TYPE string,
+        lv_rmain TYPE string,
+        lv_rctl  TYPE string,
+        lv_rid   TYPE string,
+        lv_id    TYPE string,
+        lv_tmain TYPE string,
+        lv_tctl  TYPE string.
+
+  cv_ok = abap_false.
+  CLEAR: gt_in, gt_ctl.
+
+  CREATE OBJECT lo_zip.
+  lo_zip->load( EXPORTING zip = iv_x EXCEPTIONS OTHERS = 1 ).
+  IF sy-subrc <> 0.
+    PERFORM add_log USING 0 'E' 'File is not an .xlsx workbook (save as Excel Workbook *.xlsx)'.
+    RETURN.
+  ENDIF.
+
+* --- workbook: r:id of the main and the CONTROL sheet
+  lo_zip->get( EXPORTING name = 'xl/workbook.xml' IMPORTING content = lv_part
+               EXCEPTIONS OTHERS = 1 ).
+  IF sy-subrc = 0.
+    PERFORM parse_xml USING lv_part CHANGING lo_doc.
+  ENDIF.
+  IF lo_doc IS NOT BOUND.
+    PERFORM add_log USING 0 'E' 'Workbook part could not be read'.
+    RETURN.
+  ENDIF.
+  lo_coll = lo_doc->get_elements_by_tag_name_ns( name = 'sheet' uri = gc_ns_main ).
+  lo_iter = lo_coll->create_iterator( ).
+  lo_el ?= lo_iter->get_next( ).
+  WHILE lo_el IS BOUND.
+    lv_name = lo_el->get_attribute( name = 'name' ).
+    lv_rid  = lo_el->get_attribute_ns( name = 'id' uri = gc_ns_rel ).
+    IF lv_name = gc_sheet_main OR lv_rmain IS INITIAL.
+      lv_rmain = lv_rid.                         " first sheet as fallback
+    ENDIF.
+    IF lv_name = gc_sheet_ctrl.
+      lv_rctl = lv_rid.
+    ENDIF.
+    lo_el ?= lo_iter->get_next( ).
+  ENDWHILE.
+  IF lv_rctl IS INITIAL.
+    PERFORM add_log USING 0 'E' 'Not a Fleet & Resource Schedule file from ZFLEET (CONTROL sheet missing)'.
+    RETURN.
+  ENDIF.
+
+* --- relationships -> worksheet parts
+  CLEAR lo_doc.
+  lo_zip->get( EXPORTING name = 'xl/_rels/workbook.xml.rels' IMPORTING content = lv_part
+               EXCEPTIONS OTHERS = 1 ).
+  IF sy-subrc = 0.
+    PERFORM parse_xml USING lv_part CHANGING lo_doc.
+  ENDIF.
+  IF lo_doc IS BOUND.
+    lo_coll = lo_doc->get_elements_by_tag_name_ns( name = 'Relationship' uri = gc_ns_pkg ).
+    lo_iter = lo_coll->create_iterator( ).
+    lo_el ?= lo_iter->get_next( ).
+    WHILE lo_el IS BOUND.
+      lv_id = lo_el->get_attribute( name = 'Id' ).
+      IF lv_id = lv_rmain.
+        lv_tmain = lo_el->get_attribute( name = 'Target' ).
+      ENDIF.
+      IF lv_id = lv_rctl.
+        lv_tctl = lo_el->get_attribute( name = 'Target' ).
+      ENDIF.
+      lo_el ?= lo_iter->get_next( ).
+    ENDWHILE.
+  ENDIF.
+  IF lv_tmain IS INITIAL OR lv_tctl IS INITIAL.
+    PERFORM add_log USING 0 'E' 'Worksheet not found in file'.
+    RETURN.
+  ENDIF.
+
+* --- shared strings (optional part - Excel writes it on save)
+  CLEAR lo_doc.
+  lo_zip->get( EXPORTING name = 'xl/sharedStrings.xml' IMPORTING content = lv_part
+               EXCEPTIONS OTHERS = 1 ).
+  IF sy-subrc = 0.
+    PERFORM parse_xml USING lv_part CHANGING lo_doc.
+  ENDIF.
+  IF lo_doc IS BOUND.
+    lo_coll = lo_doc->get_elements_by_tag_name_ns( name = 'si' uri = gc_ns_main ).
+    lo_iter = lo_coll->create_iterator( ).
+    lo_el ?= lo_iter->get_next( ).
+    WHILE lo_el IS BOUND.
+      PERFORM node_text USING lo_el CHANGING lv_txt.
+      APPEND lv_txt TO lt_sst.
+      lo_el ?= lo_iter->get_next( ).
+    ENDWHILE.
+  ENDIF.
+
+  PERFORM read_sheet USING lo_zip lv_tmain lt_sst CHANGING gt_in cv_ok.
+  IF cv_ok = abap_true.
+    PERFORM read_sheet USING lo_zip lv_tctl lt_sst CHANGING gt_ctl cv_ok.
+  ENDIF.
+ENDFORM.
+
+FORM read_sheet USING    io_zip    TYPE REF TO cl_abap_zip
+                         iv_target TYPE string
+                         it_sst    TYPE string_table
+                CHANGING ct        TYPE ty_t_cell
+                         cv_ok     TYPE abap_bool.
+  DATA: lo_doc  TYPE REF TO if_ixml_document,
+        lo_coll TYPE REF TO if_ixml_node_collection,
+        lo_iter TYPE REF TO if_ixml_node_iterator,
+        lo_el   TYPE REF TO if_ixml_element,
+        lo_v    TYPE REF TO if_ixml_element,
+        lv_part TYPE xstring,
+        lv_path TYPE string,
+        lv_ref  TYPE string,
+        lv_t    TYPE string,
+        lv_v    TYPE string,
+        lv_idx  TYPE i,
+        ls_cell TYPE ty_cell.
+
+  cv_ok = abap_false.
+  CLEAR ct.
+  lv_path = iv_target.
+  IF lv_path(1) = '/'.
+    SHIFT lv_path LEFT BY 1 PLACES.              " /xl/worksheets/...
+  ELSE.
+    CONCATENATE 'xl/' lv_path INTO lv_path.
+  ENDIF.
+
+  io_zip->get( EXPORTING name = lv_path IMPORTING content = lv_part
+               EXCEPTIONS OTHERS = 1 ).
+  IF sy-subrc = 0.
+    PERFORM parse_xml USING lv_part CHANGING lo_doc.
+  ENDIF.
+  IF lo_doc IS NOT BOUND.
+    PERFORM add_log USING 0 'E' 'Worksheet could not be read'.
+    RETURN.
+  ENDIF.
+
+  lo_coll = lo_doc->get_elements_by_tag_name_ns( name = 'c' uri = gc_ns_main ).
+  lo_iter = lo_coll->create_iterator( ).
+  lo_el ?= lo_iter->get_next( ).
+  WHILE lo_el IS BOUND.
+    lv_ref = lo_el->get_attribute( name = 'r' ).
+    lv_t   = lo_el->get_attribute( name = 't' ).
+    CLEAR lv_v.
+    IF lv_t = 'inlineStr'.
+      PERFORM node_text USING lo_el CHANGING lv_v.
+    ELSE.
+      lo_v = lo_el->find_from_name_ns( name = 'v' uri = gc_ns_main ).
+      IF lo_v IS BOUND.
+        lv_v = lo_v->get_value( ).
+        IF lv_t = 's'.                              " shared string index
+          lv_idx = lv_v + 1.
+          CLEAR lv_v.
+          READ TABLE it_sst INTO lv_v INDEX lv_idx.
+        ELSEIF lv_t = 'e'.                          " #N/A, #VALUE! ...
+          CLEAR lv_v.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+    CONDENSE lv_v.
+    IF lv_v IS NOT INITIAL AND lv_ref IS NOT INITIAL.
+      CLEAR ls_cell.
+      PERFORM parse_ref USING lv_ref CHANGING ls_cell-col ls_cell-row.
+      ls_cell-value = lv_v.
+      INSERT ls_cell INTO TABLE ct.
+    ENDIF.
+    lo_el ?= lo_iter->get_next( ).
+  ENDWHILE.
+  cv_ok = abap_true.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+FORM get_in USING iv_row TYPE i iv_col TYPE i CHANGING cv TYPE string.
+  DATA ls_cell TYPE ty_cell.
+  CLEAR cv.
+  READ TABLE gt_in INTO ls_cell WITH TABLE KEY row = iv_row col = iv_col.
+  IF sy-subrc = 0.
+    cv = ls_cell-value.
+  ENDIF.
+ENDFORM.
+
+FORM get_ctl USING iv_col TYPE i CHANGING cv TYPE string.
+  DATA ls_cell TYPE ty_cell.
+  CLEAR cv.
+  READ TABLE gt_ctl INTO ls_cell WITH TABLE KEY row = 1 col = iv_col.
+  IF sy-subrc = 0.
+    cv = ls_cell-value.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* File belongs to this project, is current, and may be uploaded
+*----------------------------------------------------------------------*
+FORM check_control.
+  DATA: lv_val TYPE string,
+        lv_txt TYPE string,
+        lv_ver TYPE zps_t_fr_hdr-versn.
+
+  PERFORM get_ctl USING 1 CHANGING lv_val.
+  IF lv_val <> gc_marker.
+    PERFORM add_log USING 0 'E' 'Not a Fleet & Resource Schedule file from ZFLEET'.
+    RETURN.
+  ENDIF.
+
+  PERFORM get_ctl USING 2 CHANGING lv_val.
+  IF lv_val <> gv_ext_pspid.
+    CONCATENATE 'File belongs to project' lv_val ', not' gv_ext_pspid
+      INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING 0 'E' lv_txt.
+    RETURN.
+  ENDIF.
+
+  PERFORM get_ctl USING 8 CHANGING lv_val.
+  gv_mode = lv_val.
+  IF gv_mode = gc_mode_display.
+    PERFORM add_log USING 0 'E' 'File was downloaded for display only (older version / no change authorisation)'.
+    RETURN.
+  ENDIF.
+
+  PERFORM get_ctl USING 3 CHANGING lv_val.
+  IF lv_val CN '0123456789' OR lv_val IS INITIAL.
+    PERFORM add_log USING 0 'E' 'Version key on CONTROL sheet is damaged - download again'.
+    RETURN.
+  ENDIF.
+  lv_ver = lv_val.
+  SELECT MAX( versn ) FROM zps_t_fr_hdr INTO gv_latest
+    WHERE pspid = gs_proj-pspid.
+  IF lv_ver <> gv_latest.
+    IF gv_latest IS INITIAL.
+      CONCATENATE 'File is based on version' lv_ver 'but the project has no saved version'
+        INTO lv_txt SEPARATED BY space.
+    ELSE.
+      CONCATENATE 'Version' gv_latest 'was saved after this file was downloaded (base version'
+                  lv_ver ') - download again and re-apply your changes'
+        INTO lv_txt SEPARATED BY space.
+    ENDIF.
+    PERFORM add_log USING 0 'E' lv_txt.
+    RETURN.
+  ENDIF.
+  gv_versn = lv_ver.
+  IF gv_versn IS NOT INITIAL.
+    SELECT SINGLE * FROM zps_t_fr_hdr INTO gs_hdr
+      WHERE pspid = gs_proj-pspid AND versn = gv_versn.
+  ENDIF.
+
+  PERFORM get_ctl USING 4 CHANGING lv_val.
+  gv_spmon = lv_val.
+  PERFORM get_ctl USING 5 CHANGING lv_val.
+  gv_perfr = lv_val.
+  PERFORM get_ctl USING 6 CHANGING lv_val.
+  gv_perto = lv_val.
+  PERFORM get_ctl USING 7 CHANGING lv_val.
+  gv_ownhr = lv_val.
+  IF gv_spmon IS INITIAL OR gv_spmon+4(2) < '01' OR gv_spmon+4(2) > '12'.
+    PERFORM add_log USING 0 'E' 'Reporting month on CONTROL sheet is damaged - download again'.
+    RETURN.
+  ENDIF.
+  PERFORM set_windows.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Columns must not be moved / inserted / deleted
+*----------------------------------------------------------------------*
+FORM check_headers.
+  DATA: ls_col TYPE ty_col,
+        lv_v   TYPE string,
+        lv_e   TYPE string,
+        lv_c   TYPE string,
+        lv_txt TYPE string.
+  LOOP AT gt_col INTO ls_col.
+    PERFORM get_in USING gc_r_head ls_col-col CHANGING lv_v.
+    lv_e = ls_col-name.
+    CONDENSE lv_e.
+    IF lv_v <> lv_e.
+      PERFORM col_letter USING ls_col-col CHANGING lv_c.
+      CONCATENATE 'Column' lv_c 'should be "' lv_e '" but is "' lv_v
+                  '" - columns must not be inserted, deleted or renamed'
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING gc_r_head 'E' lv_txt.
+      RETURN.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Header entries: expected completion date, sanctioned cost
+*----------------------------------------------------------------------*
+FORM parse_header.
+  DATA: lv_v   TYPE string,
+        lv_ok  TYPE abap_bool,
+        lv_txt TYPE string.
+
+  PERFORM get_in USING gc_r_cli gc_c_hval CHANGING lv_v.
+  CLEAR gv_expcd.
+  IF lv_v IS NOT INITIAL.
+    PERFORM str2date USING lv_v CHANGING gv_expcd lv_ok.
+    IF lv_ok = abap_false.
+      CONCATENATE 'Invalid Expected Completion Date' lv_v INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING gc_r_cli 'E' lv_txt.
+    ELSEIF gs_proj-plfaz IS NOT INITIAL AND gv_expcd < gs_proj-plfaz.
+      PERFORM add_log USING gc_r_cli 'E' 'Expected Completion Date is before the contractual start date'.
+    ENDIF.
+  ENDIF.
+
+  PERFORM get_in USING gc_r_sanc gc_c_hval CHANGING lv_v.
+  CLEAR gv_sncost.
+  IF lv_v IS NOT INITIAL.
+    PERFORM str2amt USING lv_v CHANGING gv_sncost lv_ok.
+    IF lv_ok = abap_false OR gv_sncost < 0.
+      CONCATENATE 'Invalid Sanctioned / Contracted Cost' lv_v INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING gc_r_sanc 'E' lv_txt.
+    ENDIF.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Resource lines from row 13 down to the totals row
+*----------------------------------------------------------------------*
+FORM parse_rows.
+  DATA: ls_cell TYPE ty_cell,
+        ls_ln   TYPE ty_line,
+        ls_base TYPE ty_line,
+        lv_maxr TYPE i,
+        lv_r    TYPE i,
+        lv_seq  TYPE i,
+        lv_v    TYPE string,
+        lv_ok   TYPE abap_bool,
+        lv_txt  TYPE string,
+        lv_any  TYPE abap_bool,
+        lv_lin  TYPE zps_t_fr_itm-linid,
+        lt_used TYPE SORTED TABLE OF zps_t_fr_itm-linid WITH UNIQUE KEY table_line.
+
+  CLEAR gt_line.
+  LOOP AT gt_in INTO ls_cell.
+    IF ls_cell-row > lv_maxr. lv_maxr = ls_cell-row. ENDIF.
+  ENDLOOP.
+
+  lv_r = gc_r_data - 1.
+  WHILE lv_r < lv_maxr.
+    lv_r = lv_r + 1.
+
+*   totals row ends the table
+    PERFORM get_in USING lv_r gc_c_sno CHANGING lv_v.
+    TRANSLATE lv_v TO UPPER CASE.
+    IF lv_v = 'TOTAL'.
+      EXIT.
+    ENDIF.
+*   totals row switched off in Excel - stop at the signature line
+    PERFORM get_in USING lv_r gc_c_eqart CHANGING lv_v.
+    IF lv_v CP '(Planning Incharge)*'.
+      EXIT.
+    ENDIF.
+
+*   any user-entered value in the row?
+    CLEAR lv_any.
+    LOOP AT gt_in INTO ls_cell WHERE row = lv_r.
+      IF ls_cell-col = gc_c_eqart OR ls_cell-col = gc_c_class OR ls_cell-col = gc_c_equnr OR
+         ls_cell-col = gc_c_avl  OR
+         ls_cell-col = gc_c_ownc OR ls_cell-col = gc_c_qty   OR
+         ls_cell-col = gc_c_pihc OR ls_cell-col = gc_c_popr  OR ls_cell-col = gc_c_pful  OR
+         ls_cell-col = gc_c_pfrm OR ls_cell-col = gc_c_pto   OR ls_cell-col = gc_c_rfrm  OR
+         ls_cell-col = gc_c_rto  OR ls_cell-col = gc_c_rem.
+        lv_any = abap_true.
+        EXIT.
+      ENDIF.
+    ENDLOOP.
+    IF lv_any = abap_false.
+      CONTINUE.                                     " empty row
+    ENDIF.
+
+    CLEAR ls_ln.
+    ls_ln-row = lv_r.
+    lv_seq = lv_seq + 1.
+    ls_ln-sortkey = lv_seq.
+
+*   line identity (hidden column AL) - kept only if known and unused
+    PERFORM get_in USING lv_r gc_c_lin CHANGING lv_v.
+    IF lv_v IS NOT INITIAL AND lv_v CO '0123456789' AND strlen( lv_v ) <= 6.
+      lv_lin = lv_v.
+      READ TABLE gt_base INTO ls_base WITH KEY linid = lv_lin.
+      IF sy-subrc = 0.
+        INSERT lv_lin INTO TABLE lt_used.
+        IF sy-subrc = 0.
+          ls_ln-linid = lv_lin.
+        ELSE.
+          PERFORM add_log USING lv_r 'I' 'Copied row - saved as a new resource line'.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+
+*   Equipment Group (object type) - overwritten from the equipment master
+    PERFORM get_in USING lv_r gc_c_eqart CHANGING lv_v.
+    PERFORM eqart_code USING lv_v CHANGING ls_ln-eqart lv_ok.
+    IF lv_ok = abap_false.
+      CONCATENATE 'Equipment Group' lv_v 'not found - select from the list' INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING lv_r 'E' lv_txt.
+    ENDIF.
+    PERFORM eqart_text USING ls_ln-eqart CHANGING ls_ln-eqtxt.
+
+*   Own / Hired: from SAP (equipment category) - sheet value ignored
+
+*   Equipment Class (required - it describes the line)
+    PERFORM get_in USING lv_r gc_c_class CHANGING lv_v.
+    PERFORM class_code USING lv_v CHANGING ls_ln-class lv_ok.
+    IF lv_ok = abap_false.
+      CONCATENATE 'Equipment Class' lv_v 'not found - select from the list' INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING lv_r 'E' lv_txt.
+    ELSEIF ls_ln-class IS INITIAL.
+      PERFORM add_log USING lv_r 'E' 'Equipment Class is required'.
+    ENDIF.
+    PERFORM class_text USING ls_ln-class CHANGING ls_ln-clstxt.
+
+*   Equipment
+    PERFORM get_in USING lv_r gc_c_equnr CHANGING lv_v.
+    IF lv_v IS NOT INITIAL.
+      CONDENSE lv_v NO-GAPS.
+      TRANSLATE lv_v TO UPPER CASE.
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = lv_v
+        IMPORTING
+          output = ls_ln-equnr.
+    ENDIF.
+
+*   Avl / Req / Sur
+    PERFORM get_in USING lv_r gc_c_avl CHANGING lv_v.
+    PERFORM avl_code USING lv_v CHANGING ls_ln-avlrq lv_ok.
+    IF lv_ok = abap_false.
+      CONCATENATE 'Avl/Req/Sur' lv_v 'is not valid' INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING lv_r 'E' lv_txt.
+    ELSEIF ls_ln-avlrq IS INITIAL.
+      PERFORM add_log USING lv_r 'E' 'Avl/Req/Sur is required'.
+    ENDIF.
+
+*   Asset code, sub-asset, description: from the equipment (FETCH_SAP)
+*   Qty: entered; blank = 1
+    PERFORM get_in USING lv_r gc_c_qty CHANGING lv_v.
+    IF lv_v IS INITIAL.
+      ls_ln-qty = 1.
+    ELSE.
+      PERFORM str2amt USING lv_v CHANGING ls_ln-qty lv_ok.
+      IF lv_ok = abap_false OR ls_ln-qty <= 0.
+        CONCATENATE 'Invalid Qty' lv_v '(enter a number greater than 0)' INTO lv_txt SEPARATED BY space.
+        PERFORM add_log USING lv_r 'E' lv_txt.
+      ENDIF.
+    ENDIF.
+
+*   Owner code
+    PERFORM get_in USING lv_r gc_c_ownc CHANGING lv_v.
+    ls_ln-owncd = lv_v.
+
+*   Planned cost per month
+    PERFORM read_amt USING lv_r gc_c_pihc 'Planned IHC/Hire' CHANGING ls_ln-pl_ihc.
+    PERFORM read_amt USING lv_r gc_c_popr 'Planned Operator' CHANGING ls_ln-pl_opr.
+    PERFORM read_amt USING lv_r gc_c_pful 'Planned Fuel'     CHANGING ls_ln-pl_fuel.
+
+*   Plan / revised plan
+    PERFORM read_date USING lv_r gc_c_pfrm 'Plan From'      CHANGING ls_ln-plfrm.
+    PERFORM read_date USING lv_r gc_c_pto  'Plan To'        CHANGING ls_ln-plto.
+    PERFORM read_date USING lv_r gc_c_rfrm 'Rev. Plan From' CHANGING ls_ln-rpfrm.
+    PERFORM read_date USING lv_r gc_c_rto  'Rev. Plan To'   CHANGING ls_ln-rpto.
+    IF ls_ln-plfrm IS NOT INITIAL AND ls_ln-plto IS NOT INITIAL AND ls_ln-plfrm > ls_ln-plto.
+      PERFORM add_log USING lv_r 'E' 'Plan From is after Plan To'.
+    ENDIF.
+    IF ls_ln-rpfrm IS NOT INITIAL AND ls_ln-rpto IS NOT INITIAL AND ls_ln-rpfrm > ls_ln-rpto.
+      PERFORM add_log USING lv_r 'E' 'Rev. Plan From is after Rev. Plan To'.
+    ENDIF.
+    IF ( ls_ln-plfrm IS INITIAL AND ls_ln-plto IS NOT INITIAL ) OR
+       ( ls_ln-plfrm IS NOT INITIAL AND ls_ln-plto IS INITIAL ).
+      PERFORM add_log USING lv_r 'W' 'Plan From / To incomplete - machine months not calculated'.
+    ENDIF.
+    IF ( ls_ln-plfrm IS NOT INITIAL AND gs_proj-plfaz IS NOT INITIAL AND ls_ln-plfrm < gs_proj-plfaz ) OR
+       ( ls_ln-plto  IS NOT INITIAL AND gv_expcd IS NOT INITIAL AND ls_ln-plto > gv_expcd ).
+      PERFORM add_log USING lv_r 'W' 'Plan dates are outside the contractual start / expected completion dates'.
+    ENDIF.
+
+*   Remarks
+    PERFORM get_in USING lv_r gc_c_rem CHANGING lv_v.
+    ls_ln-remark = lv_v.
+
+*   SAP values (master data, actuals) for the reporting month
+    PERFORM fetch_sap USING lv_r abap_true CHANGING ls_ln.
+    APPEND ls_ln TO gt_line.
+  ENDWHILE.
+ENDFORM.
+
+FORM read_amt USING iv_r TYPE i iv_c TYPE i iv_name TYPE any CHANGING cv TYPE any.
+  DATA: lv_v   TYPE string,
+        lv_ok  TYPE abap_bool,
+        lv_a   TYPE zps_t_fr_hdr-sncost,
+        lv_txt TYPE string.
+  CLEAR cv.
+  PERFORM get_in USING iv_r iv_c CHANGING lv_v.
+  IF lv_v IS INITIAL.
+    RETURN.
+  ENDIF.
+  PERFORM str2amt USING lv_v CHANGING lv_a lv_ok.
+  IF lv_ok = abap_false OR lv_a < 0.
+    CONCATENATE 'Invalid' iv_name lv_v INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING iv_r 'E' lv_txt.
+    RETURN.
+  ENDIF.
+  cv = lv_a.
+ENDFORM.
+
+FORM read_date USING iv_r TYPE i iv_c TYPE i iv_name TYPE any CHANGING cv TYPE d.
+  DATA: lv_v   TYPE string,
+        lv_ok  TYPE abap_bool,
+        lv_txt TYPE string.
+  CLEAR cv.
+  PERFORM get_in USING iv_r iv_c CHANGING lv_v.
+  IF lv_v IS INITIAL.
+    RETURN.
+  ENDIF.
+  PERFORM str2date USING lv_v CHANGING cv lv_ok.
+  IF lv_ok = abap_false.
+    CONCATENATE 'Invalid' iv_name lv_v '(use DD-MMM-YY or DD.MM.YYYY)' INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING iv_r 'E' lv_txt.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Line IDs, order, lines outside a filtered download, audit fields
+*----------------------------------------------------------------------*
+FORM merge_with_base.
+  DATA: ls_ln   TYPE ty_line,
+        ls_base TYPE ty_line,
+        lv_in   TYPE abap_bool,
+        lv_max  TYPE zps_t_fr_itm-linid,
+        lv_key  TYPE i,
+        lv_seq  TYPE i,
+        lv_txt  TYPE string,
+        lv_filt TYPE abap_bool,
+        lv_ts   TYPE abap_bool.
+
+  IF gv_ownhr IS NOT INITIAL OR gv_perfr IS NOT INITIAL.
+    lv_filt = abap_true.
+  ENDIF.
+
+* highest line ID used so far in any version of the project
+  SELECT MAX( linid ) FROM zps_t_fr_itm INTO lv_max
+    WHERE pspid = gs_proj-pspid.
+
+* lines in the file: new ID, audit fields
+  lv_key = 0.
+  LOOP AT gt_line INTO ls_ln.
+    IF ls_ln-linid IS INITIAL.
+      lv_max = lv_max + 1.
+      ls_ln-linid = lv_max.
+      ls_ln-ernam = sy-uname. ls_ln-erdat = sy-datum. ls_ln-erzet = sy-uzeit.
+      ls_ln-aenam = sy-uname. ls_ln-aedat = sy-datum. ls_ln-aezet = sy-uzeit.
+      PERFORM auth_line USING ls_ln.
+      lv_key = lv_key + 1.
+    ELSE.
+      READ TABLE gt_base INTO ls_base WITH KEY linid = ls_ln-linid.
+*     cost codes are not in the sheet any more - keep the saved values
+      ls_ln-cstcd1 = ls_base-cstcd1.
+      ls_ln-cstcd2 = ls_base-cstcd2.
+      ls_ln-ernam = ls_base-ernam. ls_ln-erdat = ls_base-erdat. ls_ln-erzet = ls_base-erzet.
+      PERFORM line_changed USING ls_ln ls_base CHANGING lv_ts.
+      IF lv_ts = abap_true.
+        ls_ln-aenam = sy-uname. ls_ln-aedat = sy-datum. ls_ln-aezet = sy-uzeit.
+        PERFORM auth_line USING ls_ln.
+      ELSE.
+        ls_ln-aenam = ls_base-aenam. ls_ln-aedat = ls_base-aedat. ls_ln-aezet = ls_base-aezet.
+      ENDIF.
+      lv_key = ls_base-seqnr * 1000.
+    ENDIF.
+*   order: unfiltered file = file order; filtered = anchored on base order
+    IF lv_filt = abap_true.
+      ls_ln-sortkey = lv_key.
+      lv_key = lv_key + 1.
+    ENDIF.
+    MODIFY gt_line FROM ls_ln.
+  ENDLOOP.
+
+* base lines missing from the file
+  LOOP AT gt_base INTO ls_base.
+    READ TABLE gt_line TRANSPORTING NO FIELDS WITH KEY linid = ls_base-linid.
+    IF sy-subrc = 0.
+      CONTINUE.
+    ENDIF.
+    PERFORM in_scope USING ls_base gv_ownhr gv_perfr gv_perto CHANGING lv_in.
+    IF lv_in = abap_true.
+      CONCATENATE 'Line' ls_base-asstxt '(ID' ls_base-linid ') was deleted in the file - removed from the schedule'
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING 0 'W' lv_txt.
+      PERFORM auth_line USING ls_base.
+    ELSE.
+*     outside the downloaded filter - carried forward with fresh SAP values
+      ls_ln = ls_base.
+      CLEAR ls_ln-row.
+      PERFORM fetch_sap USING 0 abap_false CHANGING ls_ln.
+      ls_ln-sortkey = ls_base-seqnr * 1000.
+      APPEND ls_ln TO gt_line.
+    ENDIF.
+  ENDLOOP.
+
+  SORT gt_line BY sortkey row.
+  LOOP AT gt_line INTO ls_ln.
+    lv_seq = lv_seq + 1.
+    ls_ln-seqnr = lv_seq.
+    MODIFY gt_line FROM ls_ln.
+  ENDLOOP.
+
+  IF gt_line IS INITIAL.
+    PERFORM add_log USING 0 'E' 'No resource lines found in the file'.
+  ENDIF.
+ENDFORM.
+
+* user-maintained fields changed compared with the base version?
+FORM line_changed USING is_new TYPE ty_line is_old TYPE ty_line CHANGING cv TYPE abap_bool.
+  cv = abap_false.
+  IF is_new-eqart  <> is_old-eqart  OR is_new-class  <> is_old-class  OR
+     is_new-equnr  <> is_old-equnr  OR is_new-avlrq  <> is_old-avlrq  OR
+     is_new-cstcd1 <> is_old-cstcd1 OR is_new-cstcd2 <> is_old-cstcd2 OR
+
+     is_new-owncd  <> is_old-owncd  OR is_new-plfrm  <> is_old-plfrm  OR
+     is_new-qty    <> is_old-qty    OR
+     is_new-plto   <> is_old-plto   OR is_new-rpfrm  <> is_old-rpfrm  OR
+     is_new-rpto   <> is_old-rpto   OR is_new-remark <> is_old-remark OR
+     is_new-pl_ihc <> is_old-pl_ihc OR is_new-pl_opr <> is_old-pl_opr OR
+     is_new-pl_fuel <> is_old-pl_fuel.
+    cv = abap_true.
+  ENDIF.
+ENDFORM.
+
+* cost-code authorisation for a new / changed / deleted line
+FORM auth_line USING is TYPE ty_line.
+  DATA: lv_ok  TYPE abap_bool,
+        lv_txt TYPE string.
+  IF is-cstcd1 IS INITIAL.
+    RETURN.
+  ENDIF.
+  PERFORM auth_check USING '02' is-cstcd1 CHANGING lv_ok.
+  IF lv_ok = abap_false.
+    CONCATENATE 'No authorisation to change lines of Cost Code-1' is-cstcd1
+      INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING is-row 'E' lv_txt.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Cross-line checks
+*----------------------------------------------------------------------*
+FORM check_lines.
+  DATA: ls_a   TYPE ty_line,
+        ls_b   TYPE ty_line,
+        lv_ix  TYPE i,
+        lv_af  TYPE d,
+        lv_at  TYPE d,
+        lv_bf  TYPE d,
+        lv_bt  TYPE d,
+        lv_pl  TYPE zps_t_fr_hdr-plntot,
+        lv_ac  TYPE zps_t_fr_hdr-acttot,
+        lv_s1  TYPE string,
+        lv_s2  TYPE string,
+        lv_ext TYPE string,
+        lv_txt TYPE string.
+
+* same equipment on two lines with overlapping deployment windows
+  LOOP AT gt_line INTO ls_a WHERE equnr IS NOT INITIAL.
+    lv_ix = sy-tabix + 1.
+    PERFORM line_window USING ls_a CHANGING lv_af lv_at.
+    LOOP AT gt_line INTO ls_b FROM lv_ix WHERE equnr = ls_a-equnr.
+      PERFORM line_window USING ls_b CHANGING lv_bf lv_bt.
+      IF lv_af <= lv_bt AND lv_bf <= lv_at.
+        PERFORM alpha_out USING ls_a-equnr CHANGING lv_ext.
+        CONCATENATE 'Equipment' lv_ext 'is on more than one line with overlapping dates'
+          INTO lv_txt SEPARATED BY space.
+        PERFORM add_log USING ls_b-row 'W' lv_txt.
+      ENDIF.
+    ENDLOOP.
+  ENDLOOP.
+
+* totals vs sanctioned / contracted cost
+  LOOP AT gt_line INTO ls_a.
+    lv_pl = lv_pl + ls_a-plncst.
+    lv_ac = lv_ac + ls_a-actcst.
+  ENDLOOP.
+  IF gv_sncost IS NOT INITIAL.
+    IF lv_pl > gv_sncost.
+      PERFORM num2str USING lv_pl CHANGING lv_s1.
+      PERFORM num2str USING gv_sncost CHANGING lv_s2.
+      CONCATENATE 'Total planned cost' lv_s1 'exceeds the sanctioned / contracted cost' lv_s2
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING gc_r_sanc 'E' lv_txt.
+    ENDIF.
+    IF lv_ac > gv_sncost.
+      PERFORM num2str USING lv_ac CHANGING lv_s1.
+      PERFORM num2str USING gv_sncost CHANGING lv_s2.
+      CONCATENATE 'Total actual cost' lv_s1 'exceeds the sanctioned / contracted cost' lv_s2
+        INTO lv_txt SEPARATED BY space.
+      PERFORM add_log USING gc_r_sanc 'W' lv_txt.
+    ENDIF.
+  ELSE.
+    PERFORM add_log USING gc_r_sanc 'W' 'Sanctioned / Contracted Cost is blank - cost ceiling not checked'.
+  ENDIF.
+ENDFORM.
+
+FORM line_window USING is TYPE ty_line CHANGING cv_from TYPE d cv_to TYPE d.
+  IF is-rpfrm IS NOT INITIAL OR is-rpto IS NOT INITIAL.
+    cv_from = is-rpfrm. cv_to = is-rpto.
+  ELSE.
+    cv_from = is-plfrm. cv_to = is-plto.
+  ENDIF.
+  IF cv_from IS INITIAL. cv_from = '19000101'. ENDIF.
+  IF cv_to   IS INITIAL. cv_to   = gc_open_date. ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* .xlsx stores numbers with '.' (e.g. 0.10000000000000001, 1E-2)
+*----------------------------------------------------------------------*
+FORM str2amt USING iv TYPE string CHANGING cv TYPE any cv_ok TYPE abap_bool.
+  DATA: lv   TYPE string,
+        lv_f TYPE f.
+  cv_ok = abap_false.
+  CLEAR cv.
+  lv = iv.
+  REPLACE ALL OCCURRENCES OF ',' IN lv WITH ''.
+  CONDENSE lv NO-GAPS.
+  IF lv = '-'.
+    cv_ok = abap_true.
+    RETURN.
+  ENDIF.
+  TRY.
+      lv_f  = lv.
+      cv    = lv_f.
+      cv_ok = abap_true.
+    CATCH cx_sy_conversion_no_number cx_sy_conversion_overflow.
+      cv_ok = abap_false.
+  ENDTRY.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Excel serial number (normal case in .xlsx) or text
+* DD.MM.YYYY / DD/MM/YYYY / DD-MM-YYYY / YYYY-MM-DD / DD-MMM-YY
+*----------------------------------------------------------------------*
+FORM str2date USING iv TYPE string CHANGING cv_d TYPE d cv_ok TYPE abap_bool.
+  DATA: lv     TYPE string,
+        lt_p   TYPE STANDARD TABLE OF string,
+        lv_p1  TYPE string,
+        lv_p2  TYPE string,
+        lv_p3  TYPE string,
+        lv_dd  TYPE n LENGTH 2,
+        lv_mm  TYPE n LENGTH 2,
+        lv_yy  TYPE n LENGTH 4,
+        lv_dot TYPE i,
+        lv_ser TYPE i,
+        lv_off TYPE i,
+        lv_f   TYPE f,
+        lv_mon TYPE c LENGTH 36 VALUE 'JANFEBMARAPRMAYJUNJULAUGSEPOCTNOVDEC'.
+
+  cv_ok = abap_false.
+  CLEAR cv_d.
+  lv = iv.
+  CONDENSE lv NO-GAPS.
+
+  FIND ALL OCCURRENCES OF '.' IN lv MATCH COUNT lv_dot.
+  IF lv CO '0123456789.' AND lv_dot <= 1 AND strlen( lv ) < 8.
+*   serial number (fraction = time of day, ignored)
+    TRY.
+        lv_f   = lv.
+        lv_ser = trunc( lv_f ).
+      CATCH cx_sy_conversion_no_number cx_sy_conversion_overflow.
+        RETURN.
+    ENDTRY.
+    IF lv_ser <= 0 OR lv_ser >= 100000.
+      RETURN.
+    ENDIF.
+    cv_d = '18991230'.
+    cv_d = cv_d + lv_ser.
+  ELSE.
+    TRANSLATE lv USING '/.-.'.
+    TRANSLATE lv TO UPPER CASE.
+    SPLIT lv AT '.' INTO TABLE lt_p.
+    IF lines( lt_p ) <> 3.
+      RETURN.
+    ENDIF.
+    READ TABLE lt_p INTO lv_p1 INDEX 1.
+    READ TABLE lt_p INTO lv_p2 INDEX 2.
+    READ TABLE lt_p INTO lv_p3 INDEX 3.
+*   month name (01-OCT-26)
+    IF strlen( lv_p2 ) = 3 AND lv_p2 CN '0123456789'.
+      FIND lv_p2 IN lv_mon MATCH OFFSET lv_off.
+      IF sy-subrc <> 0 OR lv_off MOD 3 <> 0.
+        RETURN.
+      ENDIF.
+      lv_p2 = lv_off DIV 3 + 1.
+      CONDENSE lv_p2.
+    ENDIF.
+    IF lv_p1 CN '0123456789' OR lv_p2 CN '0123456789' OR lv_p3 CN '0123456789'.
+      RETURN.
+    ENDIF.
+    IF strlen( lv_p1 ) = 4.                     " YYYY.MM.DD
+      lv_yy = lv_p1. lv_mm = lv_p2. lv_dd = lv_p3.
+    ELSE.                                       " DD.MM.YYYY
+      lv_dd = lv_p1. lv_mm = lv_p2. lv_yy = lv_p3.
+      IF strlen( lv_p3 ) = 2.
+        lv_yy = 2000 + lv_p3.
+      ENDIF.
+    ENDIF.
+    CONCATENATE lv_yy lv_mm lv_dd INTO cv_d.
+  ENDIF.
+
+  CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
+    EXPORTING
+      date                      = cv_d
+    EXCEPTIONS
+      plausibility_check_failed = 1
+      OTHERS                    = 2.
+  IF sy-subrc = 0.
+    cv_ok = abap_true.
+  ELSE.
+    CLEAR cv_d.
+  ENDIF.
+ENDFORM.
+
+*----------------------------------------------------------------------*
+* Save as a new version: ZPS_T_FR_HDR + ZPS_T_FR_ITM + ZPS_T_FR_CST
+*----------------------------------------------------------------------*
+FORM save_version.
+  DATA: ls_hdr    TYPE zps_t_fr_hdr,
+        ls_first  TYPE zps_t_fr_hdr,
+        lt_itm    TYPE STANDARD TABLE OF zps_t_fr_itm,
+        ls_itm    TYPE zps_t_fr_itm,
+        lt_cst    TYPE STANDARD TABLE OF zps_t_fr_cst,
+        ls_cst    TYPE zps_t_fr_cst,
+        ls_ln     TYPE ty_line,
+        lv_last   TYPE zps_t_fr_hdr-versn,
+        lv_varkey TYPE rstable-varkey,
+        lv_txt    TYPE string.
+
+  lv_varkey(3)    = sy-mandt.
+  lv_varkey+3(24) = gs_proj-pspid.
+  CALL FUNCTION 'ENQUEUE_E_TABLE'
+    EXPORTING
+      mode_rstable   = 'E'
+      tabname        = gc_lock_tab
+      varkey         = lv_varkey
+    EXCEPTIONS
+      foreign_lock   = 1
+      system_failure = 2
+      OTHERS         = 3.
+  IF sy-subrc <> 0.
+    CONCATENATE 'Fleet schedule of the project is locked by' sy-msgv1
+      INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING 0 'E' lv_txt.
+    RETURN.
+  ENDIF.
+
+* someone saved in the meantime?
+  SELECT MAX( versn ) FROM zps_t_fr_hdr INTO lv_last
+    WHERE pspid = gs_proj-pspid.
+  IF lv_last <> gv_versn.
+    CONCATENATE 'Version' lv_last 'was saved meanwhile - download again' INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING 0 'E' lv_txt.
+    PERFORM dequeue USING lv_varkey.
+    RETURN.
+  ENDIF.
+
+* header - created by = first version, changed by = this upload
+  SELECT SINGLE * FROM zps_t_fr_hdr INTO ls_first
+    WHERE pspid = gs_proj-pspid AND versn = '001'.
+  ls_hdr-mandt   = sy-mandt.
+  ls_hdr-pspid   = gs_proj-pspid.
+  ls_hdr-versn   = lv_last + 1.
+  ls_hdr-basever = gv_versn.
+  ls_hdr-spmon   = gv_spmon.
+  ls_hdr-perfr   = gv_perfr.
+  ls_hdr-perto   = gv_perto.
+  ls_hdr-ownhr   = gv_ownhr.
+  ls_hdr-plfaz   = gs_proj-plfaz.
+  ls_hdr-plsez   = gs_proj-plsez.
+  ls_hdr-expcd   = gv_expcd.
+  ls_hdr-sncost  = gv_sncost.
+  ls_hdr-waers   = gv_waers.
+  ls_hdr-fname   = p_file.
+  ls_hdr-nlines  = lines( gt_line ).
+  IF ls_first IS INITIAL.
+    ls_hdr-ernam = sy-uname. ls_hdr-erdat = sy-datum. ls_hdr-erzet = sy-uzeit.
+  ELSE.
+    ls_hdr-ernam = ls_first-ernam. ls_hdr-erdat = ls_first-erdat. ls_hdr-erzet = ls_first-erzet.
+  ENDIF.
+  ls_hdr-aenam = sy-uname. ls_hdr-aedat = sy-datum. ls_hdr-aezet = sy-uzeit.
+
+  LOOP AT gt_line INTO ls_ln.
+    CLEAR ls_itm.
+    MOVE-CORRESPONDING ls_ln TO ls_itm.
+    ls_itm-mandt = sy-mandt.
+    ls_itm-pspid = gs_proj-pspid.
+    ls_itm-versn = ls_hdr-versn.
+    ls_itm-waers = gv_waers.
+    APPEND ls_itm TO lt_itm.
+    ls_hdr-plntot = ls_hdr-plntot + ls_itm-plncst.
+    ls_hdr-acttot = ls_hdr-acttot + ls_itm-actcst.
+
+    CLEAR ls_cst.
+    ls_cst-mandt = sy-mandt.
+    ls_cst-pspid = gs_proj-pspid.
+    ls_cst-versn = ls_hdr-versn.
+    ls_cst-linid = ls_ln-linid.
+    ls_cst-spmon = gv_spmon.
+    ls_cst-waers = gv_waers.
+    ls_cst-ernam = sy-uname. ls_cst-erdat = sy-datum. ls_cst-erzet = sy-uzeit.
+    ls_cst-aenam = sy-uname. ls_cst-aedat = sy-datum. ls_cst-aezet = sy-uzeit.
+
+    ls_cst-cstyp = gc_cst_plan.
+    ls_cst-ihc = ls_ln-pl_ihc. ls_cst-opr = ls_ln-pl_opr. ls_cst-fuel = ls_ln-pl_fuel.
+    ls_cst-total = ls_cst-ihc + ls_cst-opr + ls_cst-fuel.
+    APPEND ls_cst TO lt_cst.
+
+    ls_cst-cstyp = gc_cst_act.
+    ls_cst-ihc = ls_ln-ac_ihc. ls_cst-opr = ls_ln-ac_opr. ls_cst-fuel = ls_ln-ac_fuel.
+    ls_cst-total = ls_cst-ihc + ls_cst-opr + ls_cst-fuel.
+    APPEND ls_cst TO lt_cst.
+
+    ls_cst-cstyp = gc_cst_itd.
+    ls_cst-ihc = ls_ln-it_ihc. ls_cst-opr = ls_ln-it_opr. ls_cst-fuel = ls_ln-it_fuel.
+    ls_cst-total = ls_cst-ihc + ls_cst-opr + ls_cst-fuel.
+    APPEND ls_cst TO lt_cst.
+  ENDLOOP.
+
+  INSERT zps_t_fr_hdr FROM ls_hdr.
+  IF sy-subrc = 0.
+    INSERT zps_t_fr_itm FROM TABLE lt_itm.
+  ENDIF.
+  IF sy-subrc = 0.
+    INSERT zps_t_fr_cst FROM TABLE lt_cst.
+  ENDIF.
+
+  IF sy-subrc = 0.
+    COMMIT WORK AND WAIT.
+    CONCATENATE 'Version' ls_hdr-versn 'saved for project' gv_ext_pspid
+      INTO lv_txt SEPARATED BY space.
+    PERFORM add_log USING 0 'S' lv_txt.
+  ELSE.
+    ROLLBACK WORK.                                     "#EC CI_ROLLBACK
+    PERFORM add_log USING 0 'E' 'Database update failed - nothing saved'.
+  ENDIF.
+
+  PERFORM dequeue USING lv_varkey.
+ENDFORM.
+
+FORM dequeue USING iv_varkey TYPE rstable-varkey.
+  CALL FUNCTION 'DEQUEUE_E_TABLE'
+    EXPORTING
+      mode_rstable = 'E'
+      tabname      = gc_lock_tab
+      varkey       = iv_varkey.
+ENDFORM.
